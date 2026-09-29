@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,8 +11,10 @@ from .common import TimestampMixin
 
 class DataUpload(Base, TimestampMixin):
     __tablename__ = "data_uploads"
+    __table_args__ = (Index("ix_data_uploads_tenant_org_status", "tenant_id", "organization_id", "status"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
     organization_id: Mapped[int] = mapped_column(Integer, ForeignKey("organizations.id"), index=True, nullable=False)
     tenant_code: Mapped[str | None] = mapped_column(String(80), index=True)
     uploaded_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)

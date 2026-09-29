@@ -9,7 +9,7 @@ from app.database.connection import get_db
 from app.utils.helpers import apply_customer_purchase_metrics, day_bounds, model_to_dict, normalize_phone, normalize_text
 from app.models import Customer, User
 from app.schemas.customer import BulkStatusUpdateRequest, CustomerCreateRequest, CustomerUpdateRequest, InteractionRequest, PurchaseRequest
-from app.services.security import require_organization
+from app.services.security import ensure_tenant_access, require_organization, tenant_id_for_user
 
 
 
@@ -25,7 +25,8 @@ def get_customers(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
-    statement = select(Customer).where(Customer.organization_id == user.organization_id)
+    tenant_id = tenant_id_for_user(user)
+    statement = select(Customer).where(Customer.tenant_id == tenant_id, Customer.organization_id == user.organization_id)
     if moduleType:
         statement = statement.where(Customer.module_tags.contains([moduleType]))
     if status:
@@ -40,13 +41,12 @@ def get_customers(
 
 def get_customer(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     customer = db.get(Customer, customer_id)
-    if not customer or customer.organization_id != user.organization_id:
-        raise HTTPException(404, "Customer not found")
+    ensure_tenant_access(customer, user, "Customer")
     return {"success": True, "data": model_to_dict(customer)}
 
 
 def create_customer(payload: CustomerCreateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     for field, label in {
         "externalId": "Customer Code",
         "name": "Customer Name",
@@ -54,38 +54,40 @@ def create_customer(payload: CustomerCreateRequest, user: User = Depends(require
         "address": "Address",
         "customerCreatedDate": "Customer Created Date",
     }.items():
-        if not str(payload.get(field, "")).strip():
+        if not str(payload_data.get(field, "")).strip():
             raise HTTPException(400, f"{label} is required")
-    bounds = day_bounds(payload.get("customerCreatedDate"))
+    bounds = day_bounds(payload_data.get("customerCreatedDate"))
     if not bounds:
         raise HTTPException(400, "Customer Created Date is invalid")
-    phone = normalize_phone(payload.get("phone"))
+    phone = normalize_phone(payload_data.get("phone"))
     duplicates = db.scalars(
         select(Customer).where(
+            Customer.tenant_id == tenant_id_for_user(user),
             Customer.organization_id == user.organization_id,
             Customer.phone == phone,
             Customer.customer_created_date >= bounds[0],
             Customer.customer_created_date < bounds[1],
         )
     ).all()
-    if any(normalize_text(item.name) == normalize_text(payload.get("name")) and normalize_text(item.address) == normalize_text(payload.get("address")) for item in duplicates):
+    if any(normalize_text(item.name) == normalize_text(payload_data.get("name")) and normalize_text(item.address) == normalize_text(payload_data.get("address")) for item in duplicates):
         raise HTTPException(409, "Customer already created.")
-    module_tag = payload.get("moduleType") or "customer_details"
+    module_tag = payload_data.get("moduleType") or "customer_details"
     customer = Customer(
+        tenant_id=tenant_id_for_user(user),
         organization_id=user.organization_id,
         tenant_code=user.tenant_code,
-        external_id=payload.get("externalId"),
-        name=payload.get("name"),
-        email=payload.get("email"),
+        external_id=payload_data.get("externalId"),
+        name=payload_data.get("name"),
+        email=payload_data.get("email"),
         phone=phone,
-        whatsapp_number=payload.get("whatsappNumber"),
-        address=payload.get("address"),
+        whatsapp_number=payload_data.get("whatsappNumber"),
+        address=payload_data.get("address"),
         customer_created_date=bounds[0],
-        demographics=payload.get("demographics") or {},
-        lifecycle=payload.get("lifecycle") or {"status": "new"},
-        preferences=payload.get("preferences") or {"preferredChannel": "whatsapp", "marketingOptIn": True, "language": "en"},
-        tags=payload.get("tags") or [],
-        notes=payload.get("notes"),
+        demographics=payload_data.get("demographics") or {},
+        lifecycle=payload_data.get("lifecycle") or {"status": "new"},
+        preferences=payload_data.get("preferences") or {"preferredChannel": "whatsapp", "marketingOptIn": True, "language": "en"},
+        tags=payload_data.get("tags") or [],
+        notes=payload_data.get("notes"),
         source={"type": "manual", "importedAt": datetime.utcnow().isoformat()},
         module_tags=[module_tag]
     )
@@ -96,47 +98,43 @@ def create_customer(payload: CustomerCreateRequest, user: User = Depends(require
 
 
 def update_customer(customer_id: int, payload: CustomerUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     customer = db.get(Customer, customer_id)
-    if not customer or customer.organization_id != user.organization_id:
-        raise HTTPException(404, "Customer not found")
+    ensure_tenant_access(customer, user, "Customer")
     apply_payload(
         customer,
-        payload,
+        payload_data,
         {"externalId": "external_id", "whatsappNumber": "whatsapp_number", "customerCreatedDate": "customer_created_date", "moduleTags": "module_tags"},
     )
-    if "phone" in payload:
-        customer.phone = normalize_phone(payload["phone"])
+    if "phone" in payload_data:
+        customer.phone = normalize_phone(payload_data["phone"])
     db.commit()
     return {"success": True, "data": model_to_dict(customer)}
 
 
 def delete_customer(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     customer = db.get(Customer, customer_id)
-    if not customer or customer.organization_id != user.organization_id:
-        raise HTTPException(404, "Customer not found")
+    ensure_tenant_access(customer, user, "Customer")
     db.delete(customer)
     db.commit()
     return {"success": True, "message": "Customer deleted"}
 
 
 def add_purchase(customer_id: int, payload: PurchaseRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     customer = db.get(Customer, customer_id)
-    if not customer or customer.organization_id != user.organization_id:
-        raise HTTPException(404, "Customer not found")
-    customer.purchases = [*(customer.purchases or []), payload]
+    ensure_tenant_access(customer, user, "Customer")
+    customer.purchases = [*(customer.purchases or []), payload_data]
     apply_customer_purchase_metrics(customer)
     db.commit()
     return {"success": True, "data": model_to_dict(customer)}
 
 
 def add_interaction(customer_id: int, payload: InteractionRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     customer = db.get(Customer, customer_id)
-    if not customer or customer.organization_id != user.organization_id:
-        raise HTTPException(404, "Customer not found")
-    interaction = {**payload, "createdBy": user.id, "createdAt": datetime.utcnow().isoformat()}
+    ensure_tenant_access(customer, user, "Customer")
+    interaction = {**payload_data, "createdBy": user.id, "createdAt": datetime.utcnow().isoformat()}
     customer.interactions = [*(customer.interactions or []), interaction]
     db.commit()
     return {"success": True, "data": model_to_dict(customer)}
@@ -144,8 +142,7 @@ def add_interaction(customer_id: int, payload: InteractionRequest, user: User = 
 
 def get_timeline(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     customer = db.get(Customer, customer_id)
-    if not customer or customer.organization_id != user.organization_id:
-        raise HTTPException(404, "Customer not found")
+    ensure_tenant_access(customer, user, "Customer")
     timeline = [
         *[{"type": "purchase", "date": item.get("date"), "data": item} for item in (customer.purchases or [])],
         *[{"type": "interaction", "date": item.get("createdAt"), "data": item} for item in (customer.interactions or [])],
@@ -155,12 +152,18 @@ def get_timeline(customer_id: int, user: User = Depends(require_organization), d
 
 
 def bulk_update_status(payload: BulkStatusUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
-    customer_ids = payload.get("customerIds") or []
+    payload_data = payload.to_payload()
+    customer_ids = payload_data.get("customerIds") or []
     updated = 0
-    for customer in db.scalars(select(Customer).where(Customer.id.in_(customer_ids), Customer.organization_id == user.organization_id)):
+    for customer in db.scalars(
+        select(Customer).where(
+            Customer.id.in_(customer_ids),
+            Customer.tenant_id == tenant_id_for_user(user),
+            Customer.organization_id == user.organization_id,
+        )
+    ):
         lifecycle = customer.lifecycle or {}
-        lifecycle["status"] = payload.get("status")
+        lifecycle["status"] = payload_data.get("status")
         customer.lifecycle = lifecycle
         updated += 1
     db.commit()
@@ -178,7 +181,5 @@ router.post("/{customer_id}/purchases")(add_purchase)
 router.post("/{customer_id}/interactions")(add_interaction)
 router.get("/{customer_id}/timeline")(get_timeline)
 router.post("/bulk-update-status")(bulk_update_status)
-
-
 
 

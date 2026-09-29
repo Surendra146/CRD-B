@@ -1,12 +1,41 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.utils.helpers import model_to_dict
-from app.models import DataUpload, User
-from app.schemas.excel import ColumnMappingRequest
-from app.services.security import get_current_user
+from app.models import Dashboard, DataUpload, User
+from app.services.security import ensure_tenant_access, require_organization, tenant_id_for_user
+from app.routers.uploads import extract_upload_metadata, get_staged_rows, stage_upload_rows
+
+
+def update_dashboard_source_status(dashboard: Dashboard, source_name: str | None, status: str) -> None:
+    sources = []
+    for source in dashboard.excel_sources_config or []:
+        next_source = dict(source)
+        if source_name and next_source.get("name") == source_name:
+            next_source["status"] = status
+        sources.append(next_source)
+    dashboard.excel_sources_config = sources
+
+
+def dashboard_upload_response(upload: DataUpload, db: Session, columns: list[str] | None = None) -> dict:
+    data = model_to_dict(upload)
+    file_data = data.get("file") or {}
+    rows = [row.raw_data for row in get_staged_rows(db, upload)]
+    preview_columns = columns
+    if preview_columns is None:
+        valid_preview = data.get("validPreview") or data.get("valid_preview") or []
+        preview_columns = valid_preview[0].get("columns") if valid_preview else []
+
+    data["uploadId"] = data["id"]
+    data["sourceName"] = file_data.get("sourceName")
+    data["dashboardId"] = file_data.get("dashboardId")
+    data["columns"] = preview_columns or []
+    data["totalRows"] = (data.get("stats") or {}).get("totalRows") or len(rows)
+    data["rawData"] = rows
+    data["processedData"] = []
+    return data
 
 
 
@@ -14,12 +43,17 @@ async def upload_excel(
     dashboardId: int | None = Form(None),
     sourceName: str | None = Form(None),
     file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
+    dashboard = db.get(Dashboard, dashboardId) if dashboardId is not None else None
+    ensure_tenant_access(dashboard, user, "Dashboard")
+
     content = await file.read()
+    columns, total_rows, rows = extract_upload_metadata(file.filename, content)
     upload = DataUpload(
-        organization_id=user.organization_id or 0,
+        tenant_id=tenant_id_for_user(user),
+        organization_id=user.organization_id,
         tenant_code=user.tenant_code,
         uploaded_by=user.id,
         file={
@@ -31,50 +65,108 @@ async def upload_excel(
             "sourceName": sourceName,
         },
         type="dashboard_excel",
-        status="pending",
+        status="uploaded",
+        stats={
+            "totalRows": total_rows,
+            "processedRows": total_rows,
+            "successRows": total_rows,
+            "errorRows": 0,
+            "warningRows": 0,
+        },
+        valid_preview=[{"columns": columns, "rows": rows[:100]}],
+        error_preview=[],
+        errors=[],
     )
     db.add(upload)
+    db.flush()
+    stage_upload_rows(db, upload, rows)
+    update_dashboard_source_status(dashboard, sourceName, "uploaded")
     db.commit()
     db.refresh(upload)
-    return {"success": True, "data": model_to_dict(upload)}
+    return {"success": True, "data": dashboard_upload_response(upload, db, columns)}
 
 
-def map_columns(payload: ColumnMappingRequest):
-    payload = payload.to_payload()
-    return {"success": True, "data": payload.get("mappings") or payload.get("columnMapping") or []}
+def map_columns(payload: dict = Body(...), user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    upload_id = payload.get("excelDataId") or payload.get("uploadId") or payload.get("id")
+    try:
+        upload_id = int(upload_id)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "excelDataId is required")
 
-
-def get_upload_job_status(job_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    upload = db.get(DataUpload, job_id)
-    if not upload:
-        raise HTTPException(404, "Upload job not found")
-    return {"success": True, "data": model_to_dict(upload)}
-
-
-def process_upload(upload_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
-    if not upload or upload.uploaded_by != user.id:
-        raise HTTPException(404, "Upload job not found")
+    if not upload or upload.type != "dashboard_excel":
+        raise HTTPException(404, "Upload not found")
+    ensure_tenant_access(upload, user, "Upload")
+
+    column_mapping = payload.get("columnMapping") or payload.get("mappings") or {}
+    upload.column_mapping = column_mapping
+    upload.status = "mapped"
+
+    dashboard_id = (upload.file or {}).get("dashboardId")
+    source_name = (upload.file or {}).get("sourceName")
+    dashboard = db.get(Dashboard, dashboard_id) if dashboard_id is not None else None
+    if dashboard and dashboard.tenant_id == tenant_id_for_user(user):
+        update_dashboard_source_status(dashboard, source_name, "mapped")
+
+    db.commit()
+    db.refresh(upload)
+    return {"success": True, "data": dashboard_upload_response(upload, db)}
+
+
+def get_upload_job_status(job_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    upload = db.get(DataUpload, job_id)
+    ensure_tenant_access(upload, user, "Upload job")
+    return {"success": True, "data": model_to_dict(upload)}
+
+
+def process_upload(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    upload = db.get(DataUpload, upload_id)
+    ensure_tenant_access(upload, user, "Upload job")
     upload.status = "processed"
     db.commit()
     db.refresh(upload)
     return {"success": True, "data": model_to_dict(upload)}
 
 
-def get_upload_status(upload_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_upload_status(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     return get_upload_job_status(upload_id, user, db)
 
 
-def get_upload_history(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.scalars(select(DataUpload).where(DataUpload.uploaded_by == user.id).order_by(DataUpload.created_at.desc())).all()
+def get_upload_history(user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    rows = db.scalars(
+        select(DataUpload)
+        .where(DataUpload.tenant_id == tenant_id_for_user(user), DataUpload.organization_id == user.organization_id)
+        .order_by(DataUpload.created_at.desc())
+    ).all()
     return {"success": True, "data": [model_to_dict(row) for row in rows]}
 
 
-def get_excel_data(dashboard_id: int):
-    return {"success": True, "data": [], "dashboardId": dashboard_id}
+def get_excel_data(dashboard_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    dashboard = db.get(Dashboard, dashboard_id)
+    ensure_tenant_access(dashboard, user, "Dashboard")
+
+    uploads = db.scalars(
+        select(DataUpload)
+        .where(
+            DataUpload.tenant_id == tenant_id_for_user(user),
+            DataUpload.organization_id == user.organization_id,
+            DataUpload.type == "dashboard_excel",
+        )
+        .order_by(DataUpload.created_at.desc())
+    ).all()
+    dashboard_uploads = [
+        upload
+        for upload in uploads
+        if str((upload.file or {}).get("dashboardId")) == str(dashboard_id)
+    ]
+    return {
+        "success": True,
+        "data": [dashboard_upload_response(upload, db) for upload in dashboard_uploads],
+        "dashboardId": dashboard_id,
+    }
 
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(require_organization)])
 
 router.post("/upload")(upload_excel)
 router.post("/map-columns")(map_columns)

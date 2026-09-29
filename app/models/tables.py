@@ -10,6 +10,12 @@ from .organization import Organization
 from .segment import Segment
 from .tenant import Tenant
 from .user import User
+from .whatsapp_marketing import (
+    GoogleMapsLead,
+    WhatsAppAutoResponder,
+    WhatsAppBulkJob,
+    WhatsAppGroupTask,
+)
 from .whatsapp_template import WhatsAppTemplate
 
 __all__ = (
@@ -20,10 +26,14 @@ __all__ = (
     "DataUpload",
     "DataUploadRow",
     "GenericJsonRecord",
+    "GoogleMapsLead",
     "Organization",
     "Segment",
     "Tenant",
     "TimestampMixin",
     "User",
+    "WhatsAppAutoResponder",
+    "WhatsAppBulkJob",
+    "WhatsAppGroupTask",
     "WhatsAppTemplate",
 )

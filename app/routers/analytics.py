@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.models.customer import Customer
 from app.models.user import User
-from app.services.security import require_organization
+from app.services.security import require_organization, tenant_id_for_user
 from app.utils.helpers import model_to_dict
 
 
@@ -29,7 +29,12 @@ def purchase_date(value: str | None) -> datetime | None:
 def get_customer_rows(db: Session, user: User, location: str | None = None) -> list[Customer]:
     # Ensure we return a concrete list to satisfy the declared return type
     rows = list(
-        db.scalars(select(Customer).where(Customer.organization_id == user.organization_id)).all()
+        db.scalars(
+            select(Customer).where(
+                Customer.tenant_id == tenant_id_for_user(user),
+                Customer.organization_id == user.organization_id,
+            )
+        ).all()
     )
     if location and location != "all":
         rows = [customer for customer in rows if customer_location(customer) == location]

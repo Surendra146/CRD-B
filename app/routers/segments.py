@@ -7,25 +7,30 @@ from app.database.connection import get_db
 from app.utils.helpers import model_to_dict, slugify
 from app.models import Segment, User
 from app.schemas.segment import SegmentCreateRequest, SegmentUpdateRequest
-from app.services.security import require_organization
+from app.services.security import ensure_tenant_access, require_organization, tenant_id_for_user
 
 
 
 def get_segments(user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    rows = db.scalars(select(Segment).where(Segment.organization_id == user.organization_id, Segment.is_active == True).order_by(Segment.created_at.desc())).all()
+    rows = db.scalars(
+        select(Segment)
+        .where(Segment.tenant_id == tenant_id_for_user(user), Segment.organization_id == user.organization_id, Segment.is_active == True)
+        .order_by(Segment.created_at.desc())
+    ).all()
     return {"success": True, "data": [model_to_dict(row) for row in rows]}
 
 
 def create_segment(payload: SegmentCreateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     segment = Segment(
+        tenant_id=tenant_id_for_user(user),
         organization_id=user.organization_id,
         tenant_code=user.tenant_code,
-        code=payload.get("code") or slugify(payload.get("name", "segment")),
-        name=payload.get("name"),
-        description=payload.get("description"),
-        filters=payload.get("filters") or {},
-        is_active=payload.get("isActive", True),
+        code=payload_data.get("code") or slugify(payload_data.get("name", "segment")),
+        name=payload_data.get("name"),
+        description=payload_data.get("description"),
+        filters=payload_data.get("filters") or {},
+        is_active=payload_data.get("isActive", True),
         created_by=user.id,
     )
     db.add(segment)
@@ -35,19 +40,17 @@ def create_segment(payload: SegmentCreateRequest, user: User = Depends(require_o
 
 
 def update_segment(segment_id: int, payload: SegmentUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     segment = db.get(Segment, segment_id)
-    if not segment or segment.organization_id != user.organization_id:
-        raise HTTPException(404, "Segment not found")
-    apply_payload(segment, payload, {"isActive": "is_active"})
+    ensure_tenant_access(segment, user, "Segment")
+    apply_payload(segment, payload_data, {"isActive": "is_active"})
     db.commit()
     return {"success": True, "data": model_to_dict(segment)}
 
 
 def delete_segment(segment_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     segment = db.get(Segment, segment_id)
-    if not segment or segment.organization_id != user.organization_id:
-        raise HTTPException(404, "Segment not found")
+    ensure_tenant_access(segment, user, "Segment")
     segment.is_active = False
     db.commit()
     return {"success": True, "message": "Segment deleted"}
@@ -79,7 +82,6 @@ router.get("/import/template")(download_segment_template)
 router.post("/import/validate")(validate_segment_import)
 router.post("/import/save")(save_segment_import)
 router.post("/import/export-errors")(export_segment_import_errors)
-
 
 
 

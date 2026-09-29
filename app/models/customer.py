@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,8 +11,13 @@ from .common import TimestampMixin
 
 class Customer(Base, TimestampMixin):
     __tablename__ = "customers"
+    __table_args__ = (
+        Index("ix_customers_tenant_org", "tenant_id", "organization_id"),
+        Index("ix_customers_tenant_phone", "tenant_id", "phone"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
     organization_id: Mapped[int] = mapped_column(Integer, ForeignKey("organizations.id"), index=True, nullable=False)
     tenant_code: Mapped[str | None] = mapped_column(String(80), index=True)
     external_id: Mapped[str | None] = mapped_column(String(255), index=True)

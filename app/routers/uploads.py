@@ -1,7 +1,7 @@
 import asyncio
 import csv
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from typing import Any
 
@@ -13,7 +13,7 @@ from app.database.connection import SessionLocal, get_db
 from app.models import Customer, DataUpload, DataUploadRow, User
 from app.redis.connection import get_progress_cache
 from app.schemas.upload import ColumnMappingRequest, SuggestMappingsRequest
-from app.services.security import require_organization
+from app.services.security import ensure_tenant_access, require_organization, tenant_id_for_user
 from app.socket.progress import emit_upload_progress
 from app.utils.helpers import apply_customer_purchase_metrics, day_bounds, json_ready, model_to_dict, normalize_phone
 
@@ -162,6 +162,7 @@ def stage_upload_rows(db: Session, upload: DataUpload, rows: list[dict]) -> None
         staged_rows.append(
             DataUploadRow(
                 upload_id=upload.id,
+                tenant_id=upload.tenant_id,
                 organization_id=upload.organization_id,
                 row_number=index,
                 status="staged",
@@ -184,6 +185,7 @@ def get_staged_rows(db: Session, upload: DataUpload, status: str | None = None):
         select(DataUploadRow)
         .where(
             DataUploadRow.upload_id == upload.id,
+            DataUploadRow.tenant_id == upload.tenant_id,
             DataUploadRow.organization_id == upload.organization_id,
         )
         .order_by(DataUploadRow.row_number)
@@ -196,6 +198,7 @@ def get_staged_rows(db: Session, upload: DataUpload, status: str | None = None):
 def count_staged_rows(db: Session, upload: DataUpload, status: str | None = None) -> int:
     statement = select(func.count(DataUploadRow.id)).where(
         DataUploadRow.upload_id == upload.id,
+        DataUploadRow.tenant_id == upload.tenant_id,
         DataUploadRow.organization_id == upload.organization_id,
     )
     if status:
@@ -208,6 +211,7 @@ def preview_rows(db: Session, upload: DataUpload, status: str, limit: int = PREV
         select(DataUploadRow)
         .where(
             DataUploadRow.upload_id == upload.id,
+            DataUploadRow.tenant_id == upload.tenant_id,
             DataUploadRow.organization_id == upload.organization_id,
             DataUploadRow.status == status,
         )
@@ -281,12 +285,15 @@ def existing_phones_for_upload(db: Session, upload: DataUpload, phones: set[str]
     for index in range(0, len(phone_list), STAGING_INSERT_CHUNK_SIZE):
         batch = phone_list[index : index + STAGING_INSERT_CHUNK_SIZE]
         existing.update(
-            db.scalars(
+            phone
+            for phone in db.scalars(
                 select(Customer.phone).where(
                     Customer.organization_id == upload.organization_id,
+                    Customer.tenant_id == upload.tenant_id,
                     Customer.phone.in_(batch),
                 )
             ).all()
+            if phone is not None
         )
     return existing
 
@@ -349,9 +356,10 @@ def map_import_row(row: dict, mappings: list[dict]) -> dict:
 
 
 def build_customer_payload(mapped: dict, user: User, upload_type: str) -> dict:
-    customer_date = parse_date(mapped.get("customerCreatedDate")) or datetime.utcnow()
+    customer_date = parse_date(mapped.get("customerCreatedDate")) or datetime.now(timezone.utc).replace(tzinfo=None)
     return {
         "organization_id": user.organization_id,
+        "tenant_id": tenant_id_for_user(user),
         "tenant_code": user.tenant_code,
         "external_id": normalize_phone(mapped.get("phone")) or None,
         "name": mapped.get("name") or "Unknown Customer",
@@ -362,7 +370,7 @@ def build_customer_payload(mapped: dict, user: User, upload_type: str) -> dict:
         "demographics": mapped.get("demographics") or {"customerType": "Regular"},
         "lifecycle": mapped.get("lifecycle") or {"status": "new"},
         "preferences": {"preferredChannel": "whatsapp", "marketingOptIn": True, "language": "en"},
-        "source": {"type": "import", "importedAt": datetime.utcnow().isoformat()},
+        "source": {"type": "import", "importedAt": datetime.now(timezone.utc).isoformat()},
         "module_tags": [upload_type],
     }
 
@@ -374,6 +382,7 @@ def get_or_create_import_customer(db: Session, mapped: dict, user: User, upload_
         customer = db.scalar(
             select(Customer).where(
                 Customer.organization_id == user.organization_id,
+                Customer.tenant_id == tenant_id_for_user(user),
                 Customer.phone == phone,
             )
         )
@@ -483,6 +492,7 @@ async def upload_file(
     columns, total_rows, rows = extract_upload_metadata(file.filename, content)
     raw_preview = rows[:PREVIEW_LIMIT]
     upload = DataUpload(
+        tenant_id=tenant_id_for_user(user),
         organization_id=user.organization_id,
         tenant_code=user.tenant_code,
         uploaded_by=user.id,
@@ -516,9 +526,9 @@ async def upload_file(
 
 
 def suggest_mappings(payload: SuggestMappingsRequest):
-    payload = payload.to_payload()
-    columns = payload.get("columns") or []
-    upload_type = payload.get("type")
+    payload_data = payload.to_payload()
+    columns = payload_data.get("columns") or []
+    upload_type = payload_data.get("type")
     return {
         "success": True,
         "data": [
@@ -542,7 +552,7 @@ def get_target_fields(type: str = Query("customer_details")):
 def get_upload_history(user: User = Depends(require_organization), db: Session = Depends(get_db)):
     rows = db.scalars(
         select(DataUpload)
-        .where(DataUpload.organization_id == user.organization_id)
+        .where(DataUpload.tenant_id == tenant_id_for_user(user), DataUpload.organization_id == user.organization_id)
         .order_by(DataUpload.created_at.desc())
     ).all()
     return {"success": True, "data": [model_to_dict(row) for row in rows]}
@@ -565,11 +575,10 @@ def export_upload_report_pdf():
 
 
 def set_column_mapping(upload_id: int, payload: ColumnMappingRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     upload = db.get(DataUpload, upload_id)
-    if not upload or upload.organization_id != user.organization_id:
-        raise HTTPException(404, "Upload not found")
-    requested_mapping = payload.get("columnMapping") or payload.get("mappings") or []
+    ensure_tenant_access(upload, user, "Upload")
+    requested_mapping = payload_data.get("columnMapping") or payload_data.get("mappings") or []
     upload.column_mapping = normalize_column_mapping(requested_mapping, upload.type)
     db.commit()
     return {"success": True, "data": upload_response(upload, db)}
@@ -691,8 +700,7 @@ def process_upload(
     db: Session = Depends(get_db),
 ):
     upload = db.get(DataUpload, upload_id)
-    if not upload or upload.organization_id != user.organization_id:
-        raise HTTPException(404, "Upload not found")
+    ensure_tenant_access(upload, user, "Upload")
     if not upload.column_mapping:
         raise HTTPException(400, "Please save column mapping before validation")
     if upload.status == "completed":
@@ -724,6 +732,8 @@ def save_upload_job(upload_id: int, user_id: int) -> None:
         upload = db.get(DataUpload, upload_id)
         user = db.get(User, user_id)
         if not upload or not user:
+            return
+        if upload.tenant_id != tenant_id_for_user(user) or upload.organization_id != user.organization_id:
             return
 
         saved_rows = 0
@@ -781,7 +791,7 @@ def save_upload_job(upload_id: int, user_id: int) -> None:
             "newTransactions": new_transactions if upload.type == "customer_sales" else stats.get("newTransactions", 0),
             "updatedCustomers": max(saved_rows - new_customers, 0),
         }
-        upload.saved_at = datetime.utcnow()
+        upload.saved_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
         publish_upload_progress(upload, db, include_previews=True)
     except Exception as exc:
@@ -805,8 +815,7 @@ def confirm_save_upload(
     db: Session = Depends(get_db),
 ):
     upload = db.get(DataUpload, upload_id)
-    if not upload or upload.organization_id != user.organization_id:
-        raise HTTPException(404, "Upload not found")
+    ensure_tenant_access(upload, user, "Upload")
     if upload.status == "completed":
         return {"success": True, "data": upload_response(upload, db)}
     if upload.status == "saving":
@@ -835,19 +844,21 @@ def confirm_save_upload(
 
 def export_upload_errors(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
-    if not upload or upload.organization_id != user.organization_id:
-        raise HTTPException(404, "Upload not found")
+    ensure_tenant_access(upload, user, "Upload")
     return {"success": True, "data": upload.errors or []}
 
 
 def get_upload_status(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
-    if not upload or upload.organization_id != user.organization_id:
-        raise HTTPException(404, "Upload not found")
+    ensure_tenant_access(upload, user, "Upload")
     if upload.status in {"validated", "validated_with_errors", "completed", "failed", "partial"}:
         return {"success": True, "data": upload_response(upload, db)}
     cached = get_progress_cache(upload_id)
-    if cached and cached.get("organizationId") == user.organization_id:
+    if (
+        cached
+        and cached.get("organizationId") == user.organization_id
+        and cached.get("tenantId") == tenant_id_for_user(user)
+    ):
         return {"success": True, "data": cached}
     return {"success": True, "data": upload_response(upload, db)}
 

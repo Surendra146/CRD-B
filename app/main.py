@@ -40,7 +40,7 @@ def create_socket_app(fastapi_app: FastAPI, settings):
 
     socket_manager = socketio.AsyncServer(
         async_mode="asgi",
-        cors_allowed_origins=settings.cors_origins,
+        cors_allowed_origins="*",
     )
     socket_on = getattr(socket_manager, "on", None)
     if not callable(socket_on):
@@ -73,6 +73,7 @@ def create_app():
     fastapi_app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=r"https://.*\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -90,9 +91,11 @@ app = create_app()
 
 
 if __name__ == "__main__":
+    settings = get_settings()
+    is_dev = settings.environment.lower() in {"dev", "development", "local"}
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=int(os.getenv("PORT", "8000")),
-        reload=True,
+        reload=is_dev,
     )

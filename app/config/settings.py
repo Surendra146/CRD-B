@@ -10,10 +10,18 @@ class Settings:
     default_cors_origins = "http://localhost:5173,http://127.0.0.1:5173"
 
     def __init__(self) -> None:
-        self.database_url: str = os.getenv(
+        raw_db_url = os.getenv(
             "DATABASE_URL",
             "postgresql+psycopg://postgres:Psql%40123@localhost:5432/cm_db",
         )
+        # Normalize Render / cloud PostgreSQL URLs for psycopg v3 dialect
+        if raw_db_url.startswith("postgres://"):
+            raw_db_url = raw_db_url.replace("postgres://", "postgresql+psycopg://", 1)
+        elif raw_db_url.startswith("postgresql://") and not raw_db_url.startswith("postgresql+"):
+            raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        self.database_url: str = raw_db_url
+
+        self.environment: str = os.getenv("ENVIRONMENT", "production")
         self.jwt_secret: str = os.getenv("JWT_SECRET", "supersecretkey")
         self.jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))

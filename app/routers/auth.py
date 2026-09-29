@@ -20,17 +20,17 @@ from app.schemas.auth import (
     RoleRequest,
     UpdateProfileRequest,
 )
-from app.services.security import create_token, get_current_user, hash_password, require_organization, verify_password
+from app.services.security import create_token, ensure_tenant_access, get_current_user, hash_password, require_organization, tenant_id_for_user, verify_password
 from app.services.permissions import resolve_allowed_modules
 
 
 
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    payload = payload.to_payload()
-    email = str(payload.get("email", "")).strip().lower()
-    password = payload.get("password")
-    name = str(payload.get("name", "")).strip()
-    company_name = payload.get("companyName") or payload.get("company", {}).get("name") or name
+    payload_data = payload.to_payload()
+    email = str(payload_data.get("email", "")).strip().lower()
+    password = payload_data.get("password")
+    name = str(payload_data.get("name", "")).strip()
+    company_name = payload_data.get("companyName") or payload_data.get("company", {}).get("name") or name
     if not email or not password or not name:
         raise HTTPException(400, "email, password and name are required")
     if db.scalar(select(User).where(User.email == email)):
@@ -43,9 +43,9 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         email=email,
         password=hash_password(password),
         name=name,
-        phone=payload.get("phone"),
+        phone=payload_data.get("phone"),
         role="owner",
-        allowed_modules=resolve_allowed_modules("owner", payload.get("allowedModules")),
+        allowed_modules=resolve_allowed_modules("owner", payload_data.get("allowedModules")),
         tenant_id=tenant.id,
         tenant_code=tenant.code,
         company={"name": company_name},
@@ -78,10 +78,10 @@ def verify_phone_otp(user: User = Depends(get_current_user), db: Session = Depen
 
 
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    payload = payload.to_payload()
-    email = str(payload.get("email", "")).strip().lower()
+    payload_data = payload.to_payload()
+    email = str(payload_data.get("email", "")).strip().lower()
     user = db.scalar(select(User).where(User.email == email))
-    if not user or not verify_password(str(payload.get("password", "")), user.password):
+    if not user or not verify_password(str(payload_data.get("password", "")), user.password):
         raise HTTPException(401, "Invalid credentials")
     user.last_login = datetime.utcnow()
     db.commit()
@@ -108,30 +108,30 @@ def forgot_password(payload: ForgotPasswordRequest):
 
 
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
-    payload = payload.to_payload()
-    email = str(payload.get("email", "")).strip().lower()
+    payload_data = payload.to_payload()
+    email = str(payload_data.get("email", "")).strip().lower()
     user = db.scalar(select(User).where(User.email == email))
     if not user:
         raise HTTPException(404, "User not found")
-    user.password = hash_password(str(payload.get("password") or payload.get("newPassword") or ""))
+    user.password = hash_password(str(payload_data.get("password") or payload_data.get("newPassword") or ""))
     db.commit()
     return {"success": True, "message": "Password reset successful"}
 
 
 def update_profile(payload: UpdateProfileRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     for field in ("name", "phone"):
-        if field in payload:
-            setattr(user, field, payload[field])
+        if field in payload_data:
+            setattr(user, field, payload_data[field])
     db.commit()
     return {"success": True, "data": model_to_dict(user)}
 
 
 def change_password(payload: ChangePasswordRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
-    if not verify_password(str(payload.get("currentPassword", "")), user.password):
+    payload_data = payload.to_payload()
+    if not verify_password(str(payload_data.get("currentPassword", "")), user.password):
         raise HTTPException(400, "Current password is incorrect")
-    user.password = hash_password(str(payload.get("newPassword", "")))
+    user.password = hash_password(str(payload_data.get("newPassword", "")))
     user.password_changed_at = datetime.utcnow()
     db.commit()
     return {"success": True, "message": "Password changed"}
@@ -144,29 +144,34 @@ def get_organization_settings(user: User = Depends(require_organization)):
 
 
 def update_organization_settings(payload: OrganizationSettingsRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    settings = payload.to_payload()
     if not user.organization:
         raise HTTPException(404, "Organization not found")
-    user.organization.settings = {**(user.organization.settings or {}), **payload}
+    user.organization.settings = {**(user.organization.settings or {}), **settings}
     db.commit()
     return {"success": True, "data": user.organization.settings}
 
 
 def get_members(user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    members = db.scalars(select(User).where(User.organization_id == user.organization_id)).all()
+    members = db.scalars(
+        select(User).where(User.tenant_id == tenant_id_for_user(user), User.organization_id == user.organization_id)
+    ).all()
     return {"success": True, "data": [model_to_dict(member) for member in members]}
 
 
 def create_member(payload: MemberCreateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
+    email = str(payload_data.get("email", "")).strip().lower()
+    if db.scalar(select(User).where(User.email == email)):
+        raise HTTPException(409, "User already exists")
     member = User(
-        email=str(payload.get("email", "")).lower(),
-        password=hash_password(str(payload.get("password", "password123"))),
-        name=payload.get("name") or payload.get("email"),
-        phone=payload.get("phone"),
-        role=payload.get("role", "member"),
-        role_profile_name=payload.get("roleProfileName"),
-        allowed_modules=resolve_allowed_modules(payload.get("role", "member"), payload.get("allowedModules")),
+        email=email,
+        password=hash_password(str(payload_data.get("password", "password123"))),
+        name=payload_data.get("name") or payload_data.get("email"),
+        phone=payload_data.get("phone"),
+        role=payload_data.get("role", "member"),
+        role_profile_name=payload_data.get("roleProfileName"),
+        allowed_modules=resolve_allowed_modules(payload_data.get("role", "member"), payload_data.get("allowedModules")),
         organization_id=user.organization_id,
         tenant_id=user.tenant_id,
         tenant_code=user.tenant_code,
@@ -178,25 +183,23 @@ def create_member(payload: MemberCreateRequest, user: User = Depends(require_org
 
 
 def update_member(user_id: int, payload: MemberUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     member = db.get(User, user_id)
-    if not member or member.organization_id != user.organization_id:
-        raise HTTPException(404, "Member not found")
+    ensure_tenant_access(member, user, "Member")
     for field in ("name", "phone", "is_active", "allowed_modules"):
-        if field in payload:
-            setattr(member, field, payload[field])
+        if field in payload_data:
+            setattr(member, field, payload_data[field])
     db.commit()
     return {"success": True, "data": model_to_dict(member)}
 
 
 def update_member_role(user_id: int, payload: MemberRoleUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     member = db.get(User, user_id)
-    if not member or member.organization_id != user.organization_id:
-        raise HTTPException(404, "Member not found")
-    member.role = payload.get("role", member.role)
-    member.role_profile_name = payload.get("roleProfileName", member.role_profile_name)
-    member.allowed_modules = resolve_allowed_modules(member.role, payload.get("allowedModules", member.allowed_modules))
+    ensure_tenant_access(member, user, "Member")
+    member.role = payload_data.get("role", member.role)
+    member.role_profile_name = payload_data.get("roleProfileName", member.role_profile_name)
+    member.allowed_modules = resolve_allowed_modules(member.role, payload_data.get("allowedModules", member.allowed_modules))
     db.commit()
     return {"success": True, "data": model_to_dict(member)}
 
@@ -208,11 +211,11 @@ def get_roles(user: User = Depends(require_organization)):
 
 
 def create_role(payload: RoleRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     if not user.organization:
         raise HTTPException(404, "Organization not found")
     roles = list(user.organization.custom_roles or [])
-    role = {"key": payload.get("key") or slugify(payload.get("name", "role")), **payload}
+    role = {"key": payload_data.get("key") or slugify(payload_data.get("name", "role")), **payload_data}
     roles.append(role)
     user.organization.custom_roles = roles
     db.commit()
@@ -220,13 +223,13 @@ def create_role(payload: RoleRequest, user: User = Depends(require_organization)
 
 
 def update_role(role_key: str, payload: RoleRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    payload = payload.to_payload()
+    payload_data = payload.to_payload()
     if not user.organization:
         raise HTTPException(404, "Organization not found")
     roles = list(user.organization.custom_roles or [])
     for role in roles:
         if role.get("key") == role_key:
-            role.update(payload)
+            role.update(payload_data)
             user.organization.custom_roles = roles
             db.commit()
             return {"success": True, "data": role}
@@ -254,7 +257,6 @@ router.patch("/members/{user_id}/role")(update_member_role)
 router.get("/roles")(get_roles)
 router.post("/roles")(create_role)
 router.patch("/roles/{role_key}")(update_role)
-
 
 
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,9 +9,14 @@ from .common import TimestampMixin
 
 class Segment(Base, TimestampMixin):
     __tablename__ = "segments"
-    __table_args__ = (UniqueConstraint("organization_id", "code"), UniqueConstraint("organization_id", "name"))
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code"),
+        UniqueConstraint("tenant_id", "name"),
+        Index("ix_segments_tenant_org", "tenant_id", "organization_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
     organization_id: Mapped[int] = mapped_column(Integer, ForeignKey("organizations.id"), index=True, nullable=False)
     tenant_code: Mapped[str | None] = mapped_column(String(80), index=True)
     code: Mapped[str] = mapped_column(String(255), nullable=False)

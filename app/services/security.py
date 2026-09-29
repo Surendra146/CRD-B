@@ -61,18 +61,40 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
 
+    token_tenant_id = decoded.get("tenantId") or decoded.get("tenant_id")
+    if token_tenant_id and user.tenant_id and int(token_tenant_id) != user.tenant_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token tenant does not match user")
+
     organization = db.get(Organization, user.organization_id) if user.organization_id else None
+    if organization and user.tenant_id and organization.tenant_id and user.tenant_id != organization.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tenant isolation check failed for this organization")
+
     request.state.user = user
     request.state.organization = organization
     request.state.organization_id = organization.id if organization else None
-    request.state.tenant_id = user.tenant_id or (organization.tenant_id if organization else None) or (organization.id if organization else None)
+    request.state.tenant_id = tenant_id_for_user(user)
     request.state.tenant_code = (organization.tenant_code if organization else None) or user.tenant_code
     return user
+
+
+def tenant_id_for_user(user: User) -> int:
+    tenant_id = user.tenant_id or (user.organization.tenant_id if user.organization else None)
+    if not tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tenant associated with this user")
+    return tenant_id
+
+
+def organization_id_for_user(user: User) -> int:
+    if not user.organization_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No organization associated with this user")
+    return user.organization_id
 
 
 def require_organization(request: Request, user: User = Depends(get_current_user)) -> User:
     if not request.state.organization:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No organization associated with this user")
+    if not request.state.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tenant associated with this user")
     if user.tenant_id and request.state.organization.tenant_id and user.tenant_id != request.state.organization.tenant_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tenant isolation check failed for this organization")
     return user
@@ -80,3 +102,18 @@ def require_organization(request: Request, user: User = Depends(get_current_user
 
 def authorize(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+def ensure_tenant_access(record, user: User, resource_name: str = "Resource"):
+    if not record:
+        raise HTTPException(404, f"{resource_name} not found")
+
+    tenant_id = getattr(record, "tenant_id", None)
+    if tenant_id is not None and tenant_id != tenant_id_for_user(user):
+        raise HTTPException(404, f"{resource_name} not found")
+
+    organization_id = getattr(record, "organization_id", None)
+    if organization_id is not None and organization_id != user.organization_id:
+        raise HTTPException(404, f"{resource_name} not found")
+
+    return record
