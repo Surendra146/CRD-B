@@ -43,6 +43,7 @@ def model_to_dict(model: Any) -> dict[str, Any]:
     data = {
         column.name: json_ready(getattr(model, column.name))
         for column in model.__table__.columns
+        if column.name not in {"password", "password_reset_token", "phone_otp_hash"}
     }
     data["_id"] = str(data["id"])
     for key, value in list(data.items()):

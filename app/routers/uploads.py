@@ -331,9 +331,11 @@ def row_value(row: dict, mapping: dict, mapped: dict | None = None) -> Any:
     return row.get(mapping.get("sourceColumn"))
 
 
-def map_import_row(row: dict, mappings: list[dict]) -> dict:
+def map_import_row(row: dict, mappings: dict | list) -> dict:
     mapped: dict[str, Any] = {}
-    for mapping in mappings:
+    for mapping in mappings if isinstance(mappings, list) else []:
+        if not isinstance(mapping, dict):
+            continue
         target = mapping.get("targetField")
         if not target:
             continue
@@ -577,7 +579,7 @@ def export_upload_report_pdf():
 def set_column_mapping(upload_id: int, payload: ColumnMappingRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
     upload = db.get(DataUpload, upload_id)
-    ensure_tenant_access(upload, user, "Upload")
+    upload = ensure_tenant_access(upload, user, "Upload")
     requested_mapping = payload_data.get("columnMapping") or payload_data.get("mappings") or []
     upload.column_mapping = normalize_column_mapping(requested_mapping, upload.type)
     db.commit()
@@ -700,7 +702,7 @@ def process_upload(
     db: Session = Depends(get_db),
 ):
     upload = db.get(DataUpload, upload_id)
-    ensure_tenant_access(upload, user, "Upload")
+    upload = ensure_tenant_access(upload, user, "Upload")
     if not upload.column_mapping:
         raise HTTPException(400, "Please save column mapping before validation")
     if upload.status == "completed":
@@ -815,7 +817,7 @@ def confirm_save_upload(
     db: Session = Depends(get_db),
 ):
     upload = db.get(DataUpload, upload_id)
-    ensure_tenant_access(upload, user, "Upload")
+    upload = ensure_tenant_access(upload, user, "Upload")
     if upload.status == "completed":
         return {"success": True, "data": upload_response(upload, db)}
     if upload.status == "saving":
@@ -844,13 +846,13 @@ def confirm_save_upload(
 
 def export_upload_errors(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
-    ensure_tenant_access(upload, user, "Upload")
+    upload = ensure_tenant_access(upload, user, "Upload")
     return {"success": True, "data": upload.errors or []}
 
 
 def get_upload_status(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
-    ensure_tenant_access(upload, user, "Upload")
+    upload = ensure_tenant_access(upload, user, "Upload")
     if upload.status in {"validated", "validated_with_errors", "completed", "failed", "partial"}:
         return {"success": True, "data": upload_response(upload, db)}
     cached = get_progress_cache(upload_id)

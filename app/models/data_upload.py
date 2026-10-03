@@ -20,7 +20,7 @@ class DataUpload(Base, TimestampMixin):
     uploaded_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     file: Mapped[dict] = mapped_column(JSONB, default=dict)
     type: Mapped[str] = mapped_column(String(80), nullable=False)
-    column_mapping: Mapped[list] = mapped_column(JSONB, default=list)
+    column_mapping: Mapped[dict | list] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(80), default="pending", index=True)
     stats: Mapped[dict] = mapped_column(JSONB, default=dict)
     errors: Mapped[list] = mapped_column(JSONB, default=list)

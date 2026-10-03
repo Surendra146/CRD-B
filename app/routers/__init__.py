@@ -6,7 +6,6 @@ from app.routers import (
     campaigns,
     communications,
     customers,
-    dashboards,
     excel,
     marketing_tools,
     notifications,
@@ -27,12 +26,12 @@ ROUTERS = (
     (templates.router, "/api/templates", ["templates"]),
     (segments.router, "/api/segments", ["segments"]),
     (webhooks.router, "/api/webhooks", ["webhooks"]),
-    (dashboards.router, "/api/dashboards", ["dashboards"]),
     (excel.router, "/api/excel", ["excel"]),
     (analytics.router, "/api/analytics", ["analytics"]),
     (uploads.router, "/api/uploads", ["uploads"]),
     (system.router, "/api", ["system"]),
 )
+
 
 
 def register_routers(app: FastAPI) -> None:

@@ -180,7 +180,7 @@ def send_bulk_whatsapp(
 
     msg_feedback = (
         f"Campaign scheduled for {scheduled_at.strftime('%Y-%m-%d %H:%M UTC')} with {total_count} recipients"
-        if is_scheduled
+        if is_scheduled and scheduled_at
         else f"Successfully dispatched bulk broadcast to {total_count} recipients"
     )
 
@@ -219,8 +219,7 @@ def get_bulk_job(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
-    job = db.get(WhatsAppBulkJob, job_id)
-    ensure_tenant_access(job, user, "Bulk Job")
+    job = ensure_tenant_access(db.get(WhatsAppBulkJob, job_id), user, "Bulk Job")
     return {"success": True, "data": model_to_dict(job)}
 
 
@@ -231,8 +230,7 @@ def bulk_job_action(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
-    job = db.get(WhatsAppBulkJob, job_id)
-    ensure_tenant_access(job, user, "Bulk Job")
+    job = ensure_tenant_access(db.get(WhatsAppBulkJob, job_id), user, "Bulk Job")
 
     action = payload.get("action")
     if action == "cancel":

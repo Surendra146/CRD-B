@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
+from app.config.settings import get_settings
 from app.utils.helpers import model_to_dict, slugify
 from app.models import Organization, Tenant, User
 from app.schemas.auth import (
@@ -83,10 +84,13 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = db.scalar(select(User).where(User.email == email))
     if not user or not verify_password(str(payload_data.get("password", "")), user.password):
         raise HTTPException(401, "Invalid credentials")
-    user.last_login = datetime.utcnow()
+    if not user.password.startswith(("$2a$", "$2b$", "$2y$")):
+        user.password = hash_password(str(payload_data.get("password", "")))
+    # These existing database columns store UTC without timezone information.
+    user.last_login = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
     token = create_token({"userId": user.id, "tenantId": user.tenant_id})
-    response.set_cookie("token", token, httponly=True, samesite="lax")
+    response.set_cookie("token", token, httponly=True, samesite="lax", secure=get_settings().environment.lower() == "production")
     return {"success": True, "token": token, "data": model_to_dict(user)}
 
 
@@ -108,14 +112,7 @@ def forgot_password(payload: ForgotPasswordRequest):
 
 
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
-    payload_data = payload.to_payload()
-    email = str(payload_data.get("email", "")).strip().lower()
-    user = db.scalar(select(User).where(User.email == email))
-    if not user:
-        raise HTTPException(404, "User not found")
-    user.password = hash_password(str(payload_data.get("password") or payload_data.get("newPassword") or ""))
-    db.commit()
-    return {"success": True, "message": "Password reset successful"}
+    raise HTTPException(501, "Password reset requires a verified reset token flow")
 
 
 def update_profile(payload: UpdateProfileRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -132,7 +129,7 @@ def change_password(payload: ChangePasswordRequest, user: User = Depends(get_cur
     if not verify_password(str(payload_data.get("currentPassword", "")), user.password):
         raise HTTPException(400, "Current password is incorrect")
     user.password = hash_password(str(payload_data.get("newPassword", "")))
-    user.password_changed_at = datetime.utcnow()
+    user.password_changed_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
     return {"success": True, "message": "Password changed"}
 
@@ -185,6 +182,8 @@ def create_member(payload: MemberCreateRequest, user: User = Depends(require_org
 def update_member(user_id: int, payload: MemberUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
     member = db.get(User, user_id)
+    if not member:
+        raise HTTPException(404, "Member not found")
     ensure_tenant_access(member, user, "Member")
     for field in ("name", "phone", "is_active", "allowed_modules"):
         if field in payload_data:
@@ -196,6 +195,8 @@ def update_member(user_id: int, payload: MemberUpdateRequest, user: User = Depen
 def update_member_role(user_id: int, payload: MemberRoleUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
     member = db.get(User, user_id)
+    if not member:
+        raise HTTPException(404, "Member not found")
     ensure_tenant_access(member, user, "Member")
     member.role = payload_data.get("role", member.role)
     member.role_profile_name = payload_data.get("roleProfileName", member.role_profile_name)
@@ -257,6 +258,3 @@ router.patch("/members/{user_id}/role")(update_member_role)
 router.get("/roles")(get_roles)
 router.post("/roles")(create_role)
 router.patch("/roles/{role_key}")(update_role)
-
-
-

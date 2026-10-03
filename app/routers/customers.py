@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -40,8 +40,7 @@ def get_customers(
 
 
 def get_customer(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    customer = db.get(Customer, customer_id)
-    ensure_tenant_access(customer, user, "Customer")
+    customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
     return {"success": True, "data": model_to_dict(customer)}
 
 
@@ -88,7 +87,7 @@ def create_customer(payload: CustomerCreateRequest, user: User = Depends(require
         preferences=payload_data.get("preferences") or {"preferredChannel": "whatsapp", "marketingOptIn": True, "language": "en"},
         tags=payload_data.get("tags") or [],
         notes=payload_data.get("notes"),
-        source={"type": "manual", "importedAt": datetime.utcnow().isoformat()},
+        source={"type": "manual", "importedAt": datetime.now(UTC).isoformat()},
         module_tags=[module_tag]
     )
     db.add(customer)
@@ -99,8 +98,7 @@ def create_customer(payload: CustomerCreateRequest, user: User = Depends(require
 
 def update_customer(customer_id: int, payload: CustomerUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
-    customer = db.get(Customer, customer_id)
-    ensure_tenant_access(customer, user, "Customer")
+    customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
     apply_payload(
         customer,
         payload_data,
@@ -113,8 +111,7 @@ def update_customer(customer_id: int, payload: CustomerUpdateRequest, user: User
 
 
 def delete_customer(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    customer = db.get(Customer, customer_id)
-    ensure_tenant_access(customer, user, "Customer")
+    customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
     db.delete(customer)
     db.commit()
     return {"success": True, "message": "Customer deleted"}
@@ -122,8 +119,7 @@ def delete_customer(customer_id: int, user: User = Depends(require_organization)
 
 def add_purchase(customer_id: int, payload: PurchaseRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
-    customer = db.get(Customer, customer_id)
-    ensure_tenant_access(customer, user, "Customer")
+    customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
     customer.purchases = [*(customer.purchases or []), payload_data]
     apply_customer_purchase_metrics(customer)
     db.commit()
@@ -132,17 +128,15 @@ def add_purchase(customer_id: int, payload: PurchaseRequest, user: User = Depend
 
 def add_interaction(customer_id: int, payload: InteractionRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
-    customer = db.get(Customer, customer_id)
-    ensure_tenant_access(customer, user, "Customer")
-    interaction = {**payload_data, "createdBy": user.id, "createdAt": datetime.utcnow().isoformat()}
+    customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
+    interaction = {**payload_data, "createdBy": user.id, "createdAt": datetime.now(UTC).isoformat()}
     customer.interactions = [*(customer.interactions or []), interaction]
     db.commit()
     return {"success": True, "data": model_to_dict(customer)}
 
 
 def get_timeline(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    customer = db.get(Customer, customer_id)
-    ensure_tenant_access(customer, user, "Customer")
+    customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
     timeline = [
         *[{"type": "purchase", "date": item.get("date"), "data": item} for item in (customer.purchases or [])],
         *[{"type": "interaction", "date": item.get("createdAt"), "data": item} for item in (customer.interactions or [])],
@@ -181,5 +175,4 @@ router.post("/{customer_id}/purchases")(add_purchase)
 router.post("/{customer_id}/interactions")(add_interaction)
 router.get("/{customer_id}/timeline")(get_timeline)
 router.post("/bulk-update-status")(bulk_update_status)
-
 

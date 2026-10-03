@@ -23,6 +23,11 @@ class Settings:
 
         self.environment: str = os.getenv("ENVIRONMENT", "production")
         self.jwt_secret: str = os.getenv("JWT_SECRET", "supersecretkey")
+        if self.environment.lower() == "production":
+            if not os.getenv("DATABASE_URL"):
+                raise ValueError("DATABASE_URL is required in production")
+            if self.jwt_secret == "supersecretkey" or len(self.jwt_secret) < 32:
+                raise ValueError("Production JWT_SECRET must contain at least 32 characters")
         self.jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))
         self.auto_create_tables: bool = os.getenv("AUTO_CREATE_TABLES", "true").lower() in {"1", "true", "yes"}

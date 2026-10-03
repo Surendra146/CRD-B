@@ -40,7 +40,7 @@ def create_socket_app(fastapi_app: FastAPI, settings):
 
     socket_manager = socketio.AsyncServer(
         async_mode="asgi",
-        cors_allowed_origins="*",
+        cors_allowed_origins=settings.cors_origins,
     )
     socket_on = getattr(socket_manager, "on", None)
     if not callable(socket_on):
@@ -73,7 +73,6 @@ def create_app():
     fastapi_app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_origin_regex=r"https://.*\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

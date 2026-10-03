@@ -1,8 +1,6 @@
 from .tables import (
     Campaign,
     Customer,
-    Dashboard,
-    DashboardConfig,
     DataUpload,
     DataUploadRow,
     GenericJsonRecord,
@@ -22,8 +20,6 @@ from .registry import create_tables
 __all__ = (
     "Campaign",
     "Customer",
-    "Dashboard",
-    "DashboardConfig",
     "DataUpload",
     "DataUploadRow",
     "GenericJsonRecord",

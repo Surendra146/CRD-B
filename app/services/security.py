@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypeVar
 
 import bcrypt
 import jwt
@@ -16,7 +16,10 @@ MAX_BCRYPT_PASSWORD_BYTES = 72
 
 
 def hash_password(password: str) -> str:
-    return password
+    password_bytes = password.encode("utf-8")
+    if not password_bytes or len(password_bytes) > MAX_BCRYPT_PASSWORD_BYTES:
+        raise HTTPException(400, "Password must contain between 1 and 72 UTF-8 bytes")
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -31,7 +34,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_token(payload: dict[str, Any]) -> str:
     settings = get_settings()
     data = payload.copy()
-    data["exp"] = datetime.utcnow() + timedelta(minutes=settings.jwt_expires_minutes)
+    data["exp"] = datetime.now(UTC) + timedelta(minutes=settings.jwt_expires_minutes)
     return jwt.encode(data, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -104,8 +107,11 @@ def authorize(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def ensure_tenant_access(record, user: User, resource_name: str = "Resource"):
-    if not record:
+T = TypeVar("T")
+
+
+def ensure_tenant_access(record: T | None, user: User, resource_name: str = "Resource") -> T:
+    if record is None:
         raise HTTPException(404, f"{resource_name} not found")
 
     tenant_id = getattr(record, "tenant_id", None)

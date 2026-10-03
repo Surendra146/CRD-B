@@ -40,8 +40,7 @@ def get_campaigns(page: int = 1, limit: int = 10, status: str | None = None, use
 
 
 def get_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    campaign = db.get(Campaign, campaign_id)
-    ensure_tenant_access(campaign, user, "Campaign")
+    campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
     return {"success": True, "data": model_to_dict(campaign)}
 
 
@@ -72,8 +71,7 @@ def create_campaign(payload: CampaignCreateRequest, user: User = Depends(require
 
 def update_campaign(campaign_id: int, payload: CampaignUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
-    campaign = db.get(Campaign, campaign_id)
-    ensure_tenant_access(campaign, user, "Campaign")
+    campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
     if campaign.status in [*ACTIVE_STATUSES, "completed"]:
         raise HTTPException(400, "Cannot update an active or completed campaign")
     apply_payload(campaign, payload_data, {"template": "template_id", "templateId": "template_id"})
@@ -86,8 +84,7 @@ def update_campaign(campaign_id: int, payload: CampaignUpdateRequest, user: User
 
 
 def delete_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    campaign = db.get(Campaign, campaign_id)
-    ensure_tenant_access(campaign, user, "Campaign")
+    campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
     if campaign.status in ACTIVE_STATUSES:
         raise HTTPException(400, "Cannot delete an active campaign")
     db.delete(campaign)
@@ -96,8 +93,7 @@ def delete_campaign(campaign_id: int, user: User = Depends(require_organization)
 
 
 def launch_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    campaign = db.get(Campaign, campaign_id)
-    ensure_tenant_access(campaign, user, "Campaign")
+    campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
     if campaign.status not in {"draft", "scheduled"}:
         raise HTTPException(400, f"Campaign cannot be launched from status '{campaign.status}'")
     campaign.status = "active"
@@ -122,8 +118,7 @@ def complete_campaign(campaign_id: int, user: User = Depends(require_organizatio
 
 
 def set_status(campaign_id: int, status: str, user: User, db: Session, required: set[str], message: str | None = None):
-    campaign = db.get(Campaign, campaign_id)
-    ensure_tenant_access(campaign, user, "Campaign")
+    campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
     if campaign.status not in required:
         raise HTTPException(400, f"Invalid campaign status '{campaign.status}'")
     campaign.status = status

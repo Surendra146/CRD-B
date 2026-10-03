@@ -4,19 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
 from app.utils.helpers import model_to_dict
-from app.models import Dashboard, DataUpload, User
+from app.models import DataUpload, User
 from app.services.security import ensure_tenant_access, require_organization, tenant_id_for_user
 from app.routers.uploads import extract_upload_metadata, get_staged_rows, stage_upload_rows
 
 
-def update_dashboard_source_status(dashboard: Dashboard, source_name: str | None, status: str) -> None:
-    sources = []
-    for source in dashboard.excel_sources_config or []:
-        next_source = dict(source)
-        if source_name and next_source.get("name") == source_name:
-            next_source["status"] = status
-        sources.append(next_source)
-    dashboard.excel_sources_config = sources
+
 
 
 def dashboard_upload_response(upload: DataUpload, db: Session, columns: list[str] | None = None) -> dict:
@@ -46,8 +39,6 @@ async def upload_excel(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
-    dashboard = db.get(Dashboard, dashboardId) if dashboardId is not None else None
-    ensure_tenant_access(dashboard, user, "Dashboard")
 
     content = await file.read()
     columns, total_rows, rows = extract_upload_metadata(file.filename, content)
@@ -80,16 +71,17 @@ async def upload_excel(
     db.add(upload)
     db.flush()
     stage_upload_rows(db, upload, rows)
-    update_dashboard_source_status(dashboard, sourceName, "uploaded")
     db.commit()
     db.refresh(upload)
     return {"success": True, "data": dashboard_upload_response(upload, db, columns)}
 
 
 def map_columns(payload: dict = Body(...), user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    upload_id = payload.get("excelDataId") or payload.get("uploadId") or payload.get("id")
+    raw_upload_id = payload.get("excelDataId") or payload.get("uploadId") or payload.get("id")
+    if raw_upload_id is None:
+        raise HTTPException(400, "excelDataId is required")
     try:
-        upload_id = int(upload_id)
+        upload_id = int(raw_upload_id)
     except (TypeError, ValueError):
         raise HTTPException(400, "excelDataId is required")
 
@@ -102,12 +94,6 @@ def map_columns(payload: dict = Body(...), user: User = Depends(require_organiza
     upload.column_mapping = column_mapping
     upload.status = "mapped"
 
-    dashboard_id = (upload.file or {}).get("dashboardId")
-    source_name = (upload.file or {}).get("sourceName")
-    dashboard = db.get(Dashboard, dashboard_id) if dashboard_id is not None else None
-    if dashboard and dashboard.tenant_id == tenant_id_for_user(user):
-        update_dashboard_source_status(dashboard, source_name, "mapped")
-
     db.commit()
     db.refresh(upload)
     return {"success": True, "data": dashboard_upload_response(upload, db)}
@@ -115,12 +101,16 @@ def map_columns(payload: dict = Body(...), user: User = Depends(require_organiza
 
 def get_upload_job_status(job_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, job_id)
+    if not upload:
+        raise HTTPException(404, "Upload job not found")
     ensure_tenant_access(upload, user, "Upload job")
     return {"success": True, "data": model_to_dict(upload)}
 
 
 def process_upload(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
+    if not upload:
+        raise HTTPException(404, "Upload job not found")
     ensure_tenant_access(upload, user, "Upload job")
     upload.status = "processed"
     db.commit()
@@ -142,8 +132,7 @@ def get_upload_history(user: User = Depends(require_organization), db: Session =
 
 
 def get_excel_data(dashboard_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    dashboard = db.get(Dashboard, dashboard_id)
-    ensure_tenant_access(dashboard, user, "Dashboard")
+    # Dashboard model not available; filter uploads by dashboardId stored in file JSON
 
     uploads = db.scalars(
         select(DataUpload)
