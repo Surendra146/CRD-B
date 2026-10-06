@@ -1,1 +1,1 @@
-"""CBDP FastAPI application package."""
+"""HanuRam Tech FastAPI application package."""

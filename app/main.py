@@ -68,7 +68,7 @@ def create_socket_app(fastapi_app: FastAPI, settings):
 
 def create_app():
     settings = get_settings()
-    fastapi_app = FastAPI(title="CBDP Python PostgreSQL API", lifespan=lifespan)
+    fastapi_app = FastAPI(title="HanuRam Tech API", lifespan=lifespan)
 
     fastapi_app.add_middleware(
         CORSMiddleware,

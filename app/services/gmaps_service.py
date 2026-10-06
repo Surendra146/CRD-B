@@ -27,7 +27,7 @@ def search_google_maps_leads(query: str, location: str, limit: int = 25) -> list
         url = f"https://nominatim.openstreetmap.org/search?q={encoded_query}&format=json&addressdetails=1&extratags=1&limit={min(limit, 50)}"
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "CBDPMarketingBot/1.0 (contact@cbdp.local)"},
+            headers={"User-Agent": "HanuRamTechMarketingBot/1.0 (hanuramtech@gmail.com)"},
         )
         with urllib.request.urlopen(req, timeout=4) as response:
             if response.status == 200:
