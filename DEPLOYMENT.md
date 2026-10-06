@@ -35,6 +35,32 @@ Docker Compose is a separate self-hosted deployment path.
 
 ## CI and Render
 
+### Fix startup failure: production JWT_SECRET
+
+If startup reports `Production JWT_SECRET must contain at least 32 characters`,
+open the backend service's **Environment** page in Render and replace `JWT_SECRET`
+with a cryptographically random secret. Generate one locally with:
+
+```powershell
+.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Paste the generated value into Render, then select **Save and deploy**. Keep the
+value private and retain it across deployments. Changing it invalidates existing
+JWTs, so users must sign in again. Editing the local `.env` does not update Render.
+Blueprint `generateValue: true` only generates a secret when the variable does
+not already exist; it does not replace an existing weak value.
+
+Set `PYTHON_VERSION=3.13.2` in Render as well. The repository's `.python-version`
+provides the same version for services without that environment variable;
+Render gives `PYTHON_VERSION` precedence. `runtime.txt` is not a supported Render
+Python version selector. The reported Python 3.14.3 is separate from the JWT
+startup failure.
+
+References: [Render environment variables](https://render.com/docs/configure-environment-variables),
+[generated secrets](https://render.com/docs/blueprint-spec#generating-random-secrets),
+[Python version selection](https://render.com/docs/python-version).
+
 Backend CI runs pytest unit and PostgreSQL API tests with coverage/JUnit reports
 and Docker builds. See [tests/README.md](tests/README.md) for local commands and
 database isolation details. Frontend CI runs strict lint, a production build and Docker build.
@@ -103,3 +129,27 @@ The smoke script creates a random test account only at `localhost:18080`.
 
 References: https://render.com/docs/deploys,
 https://render.com/docs/blueprint-spec, https://vite.dev/guide/.
+
+
+## Meta WhatsApp webhook verification
+
+Set `WHATSAPP_VERIFY_TOKEN` in the backend `.env` for local development,
+and in the backend hosting environment for production. Choose a random token
+(for example, `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
+Enter the exact same token in Meta's Verify token field for that environment.
+Keep it in the backend; do not add it to any React `VITE_` variable.
+Restart the backend after changing environment variables.
+
+- Local callback: `https://<your-https-tunnel-domain>/api/webhooks/whatsapp`.
+  Forward the tunnel to the backend on port 8000. Localhost alone is not
+  reachable by Meta.
+- Production callback: `https://<your-backend-domain>/api/webhooks/whatsapp`.
+  Configure `WHATSAPP_VERIFY_TOKEN` on the hosting service (Render Blueprint
+  prompts for this value).
+
+The GET endpoint checks `hub.mode=subscribe` and `hub.verify_token`, then
+returns `hub.challenge` verbatim as plain text. Incorrect tokens return 403;
+a missing challenge returns 400; an unconfigured token returns 503.
+
+This implements the verification handshake only. Incoming event processing
+and POST signature validation must be implemented before receiving messages.
