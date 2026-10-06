@@ -14,6 +14,7 @@ from app.services.security import (
     tenant_id_for_user,
 )
 from app.services.whatsapp_service import personalize_message
+from app.services.meta_whatsapp import build_message, require_configuration, send_message, update_stats
 from app.utils.helpers import model_to_dict
 
 
@@ -23,17 +24,22 @@ def communication_payload(payload: CommunicationRequest) -> dict:
 
 def send_whatsapp(payload: CommunicationRequest):
     payload_data = communication_payload(payload)
-    return {"success": True, "message": "WhatsApp send queued", "data": payload_data}
+    result = send_message(
+        payload_data.get("phone") or payload_data.get("to"), payload_data.get("message") or "",
+        template=payload_data.get("template"), buttons=payload_data.get("buttons"),
+        media_files=payload_data.get("media_files"),
+    )
+    return {"success": True, "message": "Meta accepted the WhatsApp message; delivery is not yet confirmed", "data": result}
 
 
 def send_whatsapp_message(payload: CommunicationRequest):
-    payload_data = communication_payload(payload)
-    return {"success": True, "message": "WhatsApp send queued", "data": payload_data}
+    return send_whatsapp(payload)
 
 
 def send_communication(payload: CommunicationRequest):
-    payload_data = communication_payload(payload)
-    return {"success": True, "message": "Communication queued", "data": payload_data}
+    if payload.to_payload().get("channel", "whatsapp") != "whatsapp":
+        raise HTTPException(400, "Only WhatsApp communication is supported")
+    return send_whatsapp(payload)
 
 
 router = APIRouter(dependencies=[Depends(require_organization)])
@@ -67,15 +73,8 @@ def send_bulk_whatsapp(
 
     scheduled_at = None
     if scheduled_at_raw:
-        try:
-            if isinstance(scheduled_at_raw, str):
-                scheduled_at = datetime.fromisoformat(scheduled_at_raw.replace("Z", "+00:00")).replace(tzinfo=None)
-            elif isinstance(scheduled_at_raw, datetime):
-                scheduled_at = scheduled_at_raw.replace(tzinfo=None)
-        except Exception:
-            scheduled_at = None
-
-    is_scheduled = scheduled_at is not None and scheduled_at > datetime.utcnow()
+        raise HTTPException(400, "Automatic scheduled sending is not implemented. Choose Send Immediately")
+    require_configuration()
 
     # Resolve target recipients
     recipients_data: list[dict[str, Any]] = []
@@ -134,27 +133,29 @@ def send_bulk_whatsapp(
 
     if not recipients_data:
         raise HTTPException(400, "No reachable recipients found for the selected audience")
+    if len(recipients_data) > 20:
+        raise HTTPException(400, "Send up to 20 recipients per immediate broadcast until a durable background worker is configured")
 
     # Generate personalized messages for each recipient
     recipients_summary = []
-    now_iso = datetime.utcnow().isoformat()
     for rec in recipients_data:
         msg = personalize_message(message_text, rec)
+        build_message(rec.get("phone"), msg, template=req.get("template"), buttons=buttons, media_files=media_files)
         recipients_summary.append({
             "name": rec.get("name"),
             "phone": rec.get("phone"),
             "personalized_message": msg,
-            "status": "queued" if is_scheduled else "delivered",
-            "delivered_at": None if is_scheduled else now_iso,
+            "status": "queued",
+            "delivered_at": None,
         })
 
-    job_status = "scheduled" if is_scheduled else "completed"
+    job_status = "in_progress"
     total_count = len(recipients_summary)
     stats = {
         "total": total_count,
-        "sent": 0 if is_scheduled else total_count,
+        "sent": 0,
         "failed": 0,
-        "pending": total_count if is_scheduled else 0,
+        "pending": total_count,
     }
 
     bulk_job = WhatsAppBulkJob(
@@ -178,14 +179,31 @@ def send_bulk_whatsapp(
     db.commit()
     db.refresh(bulk_job)
 
-    msg_feedback = (
-        f"Campaign scheduled for {scheduled_at.strftime('%Y-%m-%d %H:%M UTC')} with {total_count} recipients"
-        if is_scheduled and scheduled_at
-        else f"Successfully dispatched bulk broadcast to {total_count} recipients"
-    )
+    # Persist each provider result. A failed or interrupted request must never
+    # claim delivery, and a retry must not silently resend this same job.
+    for index, recipient in enumerate(recipients_summary):
+        try:
+            result = send_message(recipient["phone"], recipient["personalized_message"],
+                                  template=req.get("template"), buttons=buttons, media_files=media_files)
+            recipient.update(result)
+        except HTTPException as error:
+            uncertain = isinstance(error.detail, str) and any(
+                phrase in error.detail.lower() for phrase in ("unconfirmed", "could not confirm")
+            )
+            recipient.update(status="unknown" if uncertain else "failed", error=error.detail)
+        # Lock and reload so a concurrent webhook is not overwritten.
+        db.refresh(bulk_job, with_for_update=True)
+        current = list(bulk_job.recipients_summary)
+        current[index] = dict(recipient)
+        bulk_job.recipients_summary = current
+        update_stats(bulk_job)
+        db.commit()
+    db.refresh(bulk_job)
+    stats = bulk_job.stats
+    msg_feedback = f"Meta accepted {stats['sent']} of {total_count} messages; {stats['failed']} failed. Delivery is confirmed separately by webhook."
 
     return {
-        "success": True,
+        "success": stats["sent"] > 0,
         "message": msg_feedback,
         "data": model_to_dict(bulk_job),
     }
@@ -233,19 +251,10 @@ def bulk_job_action(
     job = ensure_tenant_access(db.get(WhatsAppBulkJob, job_id), user, "Bulk Job")
 
     action = payload.get("action")
-    if action == "cancel":
-        job.status = "cancelled"
-    elif action == "pause":
-        job.status = "paused"
-    elif action == "resume":
-        job.status = "scheduled" if job.scheduled_at and job.scheduled_at > datetime.utcnow() else "completed"
-    elif action == "run_now":
-        job.status = "completed"
-        job.scheduled_at = datetime.utcnow()
-        stats = job.stats or {}
-        stats["sent"] = stats.get("total", 0)
-        stats["pending"] = 0
-        job.stats = stats
+    if action in {"resume", "run_now"}:
+        raise HTTPException(400, "This job cannot be dispatched by changing its status. Create a new immediate broadcast after checking recipient delivery")
+    if action in {"cancel", "pause"} and job.status in {"scheduled", "paused"}:
+        job.status = "cancelled" if action == "cancel" else "paused"
     else:
         raise HTTPException(400, f"Unsupported action: {action}")
 
