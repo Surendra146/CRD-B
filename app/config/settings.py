@@ -28,6 +28,14 @@ class Settings:
                 raise ValueError("DATABASE_URL is required in production")
             if self.jwt_secret == "supersecretkey" or len(self.jwt_secret) < 32:
                 raise ValueError("Production JWT_SECRET must contain at least 32 characters")
+        # Meta credentials and routing are server-owned; never expose to React.
+        self.whatsapp_provider: str = os.getenv("WHATSAPP_PROVIDER", "meta_cloud")
+        self.whatsapp_graph_version: str = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")
+        self.whatsapp_phone_number_id: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+        self.whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+        self.meta_app_secret: str = os.getenv("META_APP_SECRET", "")
+        self.whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+
         self.jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))
         self.auto_create_tables: bool = os.getenv("AUTO_CREATE_TABLES", "true").lower() in {"1", "true", "yes"}
