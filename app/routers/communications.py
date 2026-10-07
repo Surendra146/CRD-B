@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 import time
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +16,7 @@ from app.services.security import (
     require_whatsapp_access,
 )
 from app.services.whatsapp_service import personalize_message
+from app.services.whatsapp_scheduler import parse_schedule
 from app.services.meta_whatsapp import build_message, require_configuration, send_message, update_stats
 from app.services.whatsapp_connections import get_connection, resolve_credentials, public_connection
 from app.utils.helpers import model_to_dict
@@ -75,12 +76,10 @@ def send_bulk_whatsapp(
     media_files = req.get("media_files") or req.get("mediaFiles") or []
     batch_delay = int(req.get("batch_delay_seconds", req.get("batchDelaySeconds", 5)))
     if not 0 <= batch_delay <= 5:
-        raise HTTPException(400, "Immediate broadcast delay must be between 0 and 5 seconds")
+        raise HTTPException(400, "Broadcast delay must be between 0 and 5 seconds")
     scheduled_at_raw = req.get("scheduled_at") or req.get("scheduledAt")
 
-    scheduled_at = None
-    if scheduled_at_raw:
-        raise HTTPException(400, "Automatic scheduled sending is not implemented. Choose Send Immediately")
+    scheduled_at = parse_schedule(scheduled_at_raw)
     connection = resolve_credentials(db, user)
     require_configuration(connection)
 
@@ -142,7 +141,7 @@ def send_bulk_whatsapp(
     if not recipients_data:
         raise HTTPException(400, "No reachable recipients found for the selected audience")
     if len(recipients_data) > 20:
-        raise HTTPException(400, "Send up to 20 recipients per immediate broadcast until a durable background worker is configured")
+        raise HTTPException(400, "Send up to 20 recipients per broadcast")
 
     # Generate personalized messages for each recipient
     recipients_summary = []
@@ -157,7 +156,7 @@ def send_bulk_whatsapp(
             "delivered_at": None,
         })
 
-    job_status = "in_progress"
+    job_status = "scheduled" if scheduled_at else "in_progress"
     total_count = len(recipients_summary)
     stats = {
         "total": total_count,
@@ -172,7 +171,7 @@ def send_bulk_whatsapp(
         tenant_code=user.tenant_code,
         title=req.get("title") or f"Bulk Broadcast {datetime.utcnow().strftime('%b %d, %H:%M')}",
         audience_type=audience_type,
-        audience_payload={**audience, "sender_phone_number_id": connection.whatsapp_phone_number_id},
+        audience_payload={**audience, "sender_phone_number_id": connection.whatsapp_phone_number_id, "meta_template": req.get("template")},
         message_template=message_text,
         buttons=buttons,
         media_files=media_files,
@@ -187,14 +186,30 @@ def send_bulk_whatsapp(
     db.commit()
     db.refresh(bulk_job)
 
+    if scheduled_at:
+        return {"success": True, "message": "Campaign scheduled; messages have not been sent yet", "data": model_to_dict(bulk_job)}
+    return dispatch_bulk_job(db, bulk_job, connection)
+
+
+def dispatch_bulk_job(db, bulk_job, connection):
+    batch_delay = bulk_job.batch_delay_seconds
     # Persist each provider result. A failed or interrupted request must never
     # claim delivery, and a retry must not silently resend this same job.
-    for index, recipient in enumerate(recipients_summary):
+    for index, recipient in enumerate(list(bulk_job.recipients_summary)):
+        if recipient.get("status") != "queued":
+            continue
         if index and batch_delay:
             time.sleep(batch_delay)
+        # Persist uncertainty before contacting Meta; never automatically retry a
+        # recipient whose acceptance was interrupted by a process restart.
+        db.refresh(bulk_job, with_for_update=True)
+        current = list(bulk_job.recipients_summary)
+        current[index] = {**recipient, "status": "unknown"}
+        bulk_job.recipients_summary = current
+        db.commit()
         try:
             result = send_message(recipient["phone"], recipient["personalized_message"],
-                                  template=req.get("template"), buttons=buttons, media_files=media_files, connection=connection)
+                                  template=bulk_job.audience_payload.get("meta_template"), buttons=bulk_job.buttons, media_files=bulk_job.media_files, connection=connection)
             recipient.update(result)
         except HTTPException as error:
             uncertain = isinstance(error.detail, str) and any(
@@ -204,13 +219,15 @@ def send_bulk_whatsapp(
         # Lock and reload so a concurrent webhook is not overwritten.
         db.refresh(bulk_job, with_for_update=True)
         current = list(bulk_job.recipients_summary)
-        current[index] = dict(recipient)
+        # Preserve a delivery webhook that arrived while Meta was responding.
+        if current[index].get("status") not in {"sent", "delivered", "read", "failed"}:
+            current[index] = dict(recipient)
         bulk_job.recipients_summary = current
         update_stats(bulk_job)
         db.commit()
     db.refresh(bulk_job)
     stats = bulk_job.stats
-    msg_feedback = f"Meta accepted {stats['sent']} of {total_count} messages; {stats['failed']} failed. Delivery is confirmed separately by webhook."
+    msg_feedback = f"Meta accepted {stats['sent']} of {stats['total']} messages; {stats['failed']} failed. Delivery is confirmed separately by webhook."
 
     return {
         "success": stats["sent"] > 0,
@@ -253,8 +270,8 @@ def whatsapp_configuration(user: User = Depends(require_organization), db: Sessi
         "sender_configured": connection["connected"],
         "webhook_secret_configured": bool(settings.meta_app_secret),
         "organization_authorized": connection["connected"],
-        "live_features": ["text", "approved_templates", "quick_reply_buttons", "public_https_media", "delivery_webhooks"],
-        "unavailable_features": ["automatic_scheduling", "local_media_upload", "automatic_replies", "group_joining", "whatsapp_number_lookup"],
+        "live_features": ["text", "approved_templates", "quick_reply_buttons", "public_https_media", "delivery_webhooks", "automatic_scheduling"],
+        "unavailable_features": ["local_media_upload", "automatic_replies", "group_joining", "whatsapp_number_lookup"],
     }}
 
 
@@ -275,12 +292,14 @@ def bulk_job_action(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
-    job = ensure_tenant_access(db.get(WhatsAppBulkJob, job_id), user, "Bulk Job")
+    job = ensure_tenant_access(db.scalar(select(WhatsAppBulkJob).where(WhatsAppBulkJob.id == job_id).with_for_update()), user, "Bulk Job")
 
     action = payload.get("action")
-    if action in {"resume", "run_now"}:
-        raise HTTPException(400, "This job cannot be dispatched by changing its status. Create a new immediate broadcast after checking recipient delivery")
-    if action in {"cancel", "pause"} and job.status in {"scheduled", "paused"}:
+    if action in {"resume", "run_now"} and job.status in {"scheduled", "paused"}:
+        job.status = "scheduled"
+        if action == "run_now":
+            job.scheduled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    elif action in {"cancel", "pause"} and job.status in {"scheduled", "paused"}:
         job.status = "cancelled" if action == "cancel" else "paused"
     else:
         raise HTTPException(400, f"Unsupported action: {action}")

@@ -1,4 +1,5 @@
 import os
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -26,7 +27,14 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         backfill_owner_modules(db)
     finally:
         db.close()
-    yield
+    from app.services.whatsapp_scheduler import start_scheduler
+    stop, thread = start_scheduler(SessionLocal) if settings.environment.lower() != "test" else (None, None)
+    try:
+        yield
+    finally:
+        if stop is not None:
+            stop.set()
+            await asyncio.to_thread(thread.join)
 
 
 def create_socket_app(fastapi_app: FastAPI, settings):
