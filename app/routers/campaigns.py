@@ -94,15 +94,7 @@ def delete_campaign(campaign_id: int, user: User = Depends(require_organization)
 
 def launch_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
-    if campaign.status not in {"draft", "scheduled"}:
-        raise HTTPException(400, f"Campaign cannot be launched from status '{campaign.status}'")
-    campaign.status = "active"
-    campaign.last_run_at = datetime.utcnow()
-    stats = campaign.stats or {}
-    stats["totalTargeted"] = audience_size(db, user, campaign.audience or {})
-    campaign.stats = stats
-    db.commit()
-    return {"success": True, "message": "Campaign launched", "data": model_to_dict(campaign)}
+    raise HTTPException(501, "Campaign automation is not connected to a sender. Use WhatsApp Broadcast for real Meta sends")
 
 
 def pause_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
@@ -110,7 +102,8 @@ def pause_campaign(campaign_id: int, user: User = Depends(require_organization),
 
 
 def resume_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    return set_status(campaign_id, "active", user, db, required={"paused"}, message="Campaign resumed")
+    ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
+    raise HTTPException(501, "Campaign automation is not implemented. Use WhatsApp Broadcast for real Meta sends")
 
 
 def complete_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
@@ -137,6 +130,5 @@ router.post("/{campaign_id}/launch")(launch_campaign)
 router.post("/{campaign_id}/pause")(pause_campaign)
 router.post("/{campaign_id}/resume")(resume_campaign)
 router.post("/{campaign_id}/complete")(complete_campaign)
-
 
 

@@ -34,6 +34,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_token(payload: dict[str, Any]) -> str:
     settings = get_settings()
     data = payload.copy()
+    data["iat"] = datetime.now(UTC).timestamp()
     data["exp"] = datetime.now(UTC) + timedelta(minutes=settings.jwt_expires_minutes)
     return jwt.encode(data, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -41,7 +42,7 @@ def create_token(payload: dict[str, Any]) -> str:
 def decode_token(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm], options={"require": ["exp"]})
     except jwt.PyJWTError:
         return None
 
@@ -54,15 +55,26 @@ def get_current_user(
     token = credentials.credentials if credentials else request.cookies.get("token")
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authorized to access this route")
+    if not credentials and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        origin = request.headers.get("origin")
+        if origin not in get_settings().cors_origins:
+            raise HTTPException(403, "Cookie-authenticated changes require an allowed Origin")
 
     decoded = decode_token(token)
     if not decoded:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
 
     user_id = decoded.get("userId") or decoded.get("id")
-    user = db.get(User, int(user_id)) if user_id else None
+    try:
+        user = db.get(User, int(user_id)) if user_id else None
+    except (TypeError, ValueError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token subject") from None
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    if user.password_changed_at:
+        changed = user.password_changed_at.replace(tzinfo=UTC).timestamp()
+        if not decoded.get("iat") or decoded["iat"] <= changed:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in again after changing your password")
 
     token_tenant_id = decoded.get("tenantId") or decoded.get("tenant_id")
     if token_tenant_id and user.tenant_id and int(token_tenant_id) != user.tenant_id:
@@ -105,6 +117,32 @@ def require_organization(request: Request, user: User = Depends(get_current_user
 
 def authorize(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+def require_owner(user: User = Depends(require_organization)) -> User:
+    if user.role != "owner" or not user.organization or user.organization.owner_id != user.id:
+        raise HTTPException(403, "Only the organization owner can manage accounts and permissions")
+    return user
+
+
+def require_whatsapp_access(user: User = Depends(require_organization)) -> User:
+    settings = get_settings()
+    allowed = settings.whatsapp_allowed_organization_ids
+    if settings.environment.lower() == "production" and not allowed:
+        raise HTTPException(503, "Configure WHATSAPP_ALLOWED_ORGANIZATION_IDS to authorize use of the backend Meta sender")
+    if allowed and user.organization_id not in allowed:
+        raise HTTPException(403, "This organization is not authorized to use the configured Meta sender")
+    if user.role != "owner" and "whatsapp" not in (user.allowed_modules or []):
+        raise HTTPException(403, "WhatsApp permission is required")
+    return user
+
+
+def require_module(*modules):
+    def dependency(user: User = Depends(require_organization)):
+        if user.role != "owner" and not set(modules).intersection(user.allowed_modules or []):
+            raise HTTPException(403, "You do not have permission to access this module")
+        return user
+    return dependency
 
 
 T = TypeVar("T")

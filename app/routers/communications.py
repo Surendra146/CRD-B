@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.services.security import (
     ensure_tenant_access,
     require_organization,
     tenant_id_for_user,
+    require_whatsapp_access,
 )
 from app.services.whatsapp_service import personalize_message
 from app.services.meta_whatsapp import build_message, require_configuration, send_message, update_stats
@@ -42,7 +44,8 @@ def send_communication(payload: CommunicationRequest):
     return send_whatsapp(payload)
 
 
-router = APIRouter(dependencies=[Depends(require_organization)])
+router = APIRouter(dependencies=[Depends(require_whatsapp_access)])
+configuration_router = APIRouter(dependencies=[Depends(require_organization)])
 
 # Existing endpoints preserved with original behavior
 router.post("/whatsapp")(send_whatsapp)
@@ -68,7 +71,9 @@ def send_bulk_whatsapp(
     message_text = req.get("message") or ""
     buttons = req.get("buttons") or []
     media_files = req.get("media_files") or req.get("mediaFiles") or []
-    batch_delay = int(req.get("batch_delay_seconds") or req.get("batchDelaySeconds") or 5)
+    batch_delay = int(req.get("batch_delay_seconds", req.get("batchDelaySeconds", 5)))
+    if not 0 <= batch_delay <= 5:
+        raise HTTPException(400, "Immediate broadcast delay must be between 0 and 5 seconds")
     scheduled_at_raw = req.get("scheduled_at") or req.get("scheduledAt")
 
     scheduled_at = None
@@ -182,6 +187,8 @@ def send_bulk_whatsapp(
     # Persist each provider result. A failed or interrupted request must never
     # claim delivery, and a retry must not silently resend this same job.
     for index, recipient in enumerate(recipients_summary):
+        if index and batch_delay:
+            time.sleep(batch_delay)
         try:
             result = send_message(recipient["phone"], recipient["personalized_message"],
                                   template=req.get("template"), buttons=buttons, media_files=media_files)
@@ -216,6 +223,8 @@ def list_bulk_jobs(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
+    if page < 1 or not 1 <= limit <= 200:
+        raise HTTPException(400, "Use page >= 1 and limit between 1 and 200")
     t_id = tenant_id_for_user(user)
     stmt = (
         select(WhatsAppBulkJob)
@@ -229,6 +238,20 @@ def list_bulk_jobs(
     )
     jobs = db.scalars(stmt).all()
     return {"success": True, "data": [model_to_dict(j) for j in jobs]}
+
+
+@configuration_router.get("/whatsapp/configuration")
+def whatsapp_configuration(user: User = Depends(require_organization)):
+    from app.config.settings import get_settings
+    settings = get_settings()
+    return {"success": True, "data": {
+        "organization_id": user.organization_id,
+        "sender_configured": bool(settings.whatsapp_phone_number_id and settings.whatsapp_access_token),
+        "webhook_secret_configured": bool(settings.meta_app_secret),
+        "organization_authorized": user.organization_id in settings.whatsapp_allowed_organization_ids,
+        "live_features": ["text", "approved_templates", "quick_reply_buttons", "public_https_media", "delivery_webhooks"],
+        "unavailable_features": ["automatic_scheduling", "local_media_upload", "automatic_replies", "group_joining", "whatsapp_number_lookup"],
+    }}
 
 
 @router.get("/whatsapp/bulk/{job_id}")

@@ -2,7 +2,6 @@ import re
 import urllib.request
 import urllib.parse
 import json
-import random
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,103 +11,38 @@ from app.services.security import tenant_id_for_user
 
 
 def search_google_maps_leads(query: str, location: str, limit: int = 25) -> list[dict[str, Any]]:
-    """
-    Searches business leads based on business keyword and location.
-    Tries OpenStreetMap Overpass/Nominatim first, with realistic enriched directory generator fallback.
-    """
-    clean_query = (query or "Businesses").strip()
-    clean_location = (location or "Hyderabad").strip()
-    leads: list[dict[str, Any]] = []
-
-    # Attempt live OpenStreetMap search
+    """Return only real OpenStreetMap records; never fabricate contact data."""
+    from fastapi import HTTPException
+    if not 1 <= limit <= 50:
+        raise HTTPException(400, "Search limit must be between 1 and 50")
+    search_term = urllib.parse.quote(f"{query.strip()} in {location.strip()}")
+    request = urllib.request.Request(
+        f"https://nominatim.openstreetmap.org/search?q={search_term}&format=json&addressdetails=1&extratags=1&limit={limit}",
+        headers={"User-Agent": "HanuRamTech/1.0 (hanuramtech@gmail.com)"},
+    )
     try:
-        search_term = f"{clean_query} in {clean_location}"
-        encoded_query = urllib.parse.quote(search_term)
-        url = f"https://nominatim.openstreetmap.org/search?q={encoded_query}&format=json&addressdetails=1&extratags=1&limit={min(limit, 50)}"
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "HanuRamTechMarketingBot/1.0 (hanuramtech@gmail.com)"},
-        )
-        with urllib.request.urlopen(req, timeout=4) as response:
-            if response.status == 200:
-                raw = json.loads(response.read().decode())
-                for idx, item in enumerate(raw):
-                    extratags = item.get("extratags") or {}
-                    address_obj = item.get("address") or {}
-                    
-                    phone = (
-                        extratags.get("phone")
-                        or extratags.get("contact:phone")
-                        or extratags.get("contact:mobile")
-                    )
-                    
-                    # Generate a realistic mobile number if OSM didn't list a phone
-                    if not phone:
-                        last_digits = "".join([str(random.randint(0, 9)) for _ in range(8)])
-                        phone = f"+91 98{last_digits}"
-                    else:
-                        phone = re.sub(r"[^\d+]", "", phone)
-
-                    rating = round(random.uniform(4.0, 4.9), 1)
-                    reviews_count = random.randint(15, 340)
-
-                    leads.append({
-                        "id": f"gmap_{idx + 1}_{item.get('osm_id', random.randint(1000, 9999))}",
-                        "business_name": item.get("display_name", "").split(",")[0] or f"{clean_query} {idx + 1}",
-                        "phone": phone,
-                        "category": clean_query.title(),
-                        "rating": str(rating),
-                        "reviews_count": reviews_count,
-                        "address": item.get("display_name") or f"{clean_location}, India",
-                        "website": extratags.get("website") or f"https://www.{clean_query.lower().replace(' ', '')}{idx + 1}.com",
-                        "latitude": float(item.get("lat") or 0.0),
-                        "longitude": float(item.get("lon") or 0.0),
-                        "verified": True,
-                    })
-    except Exception:
-        # Fallback will trigger if OSM request fails or times out
-        pass
-
-    # If live search returned fewer than needed leads, supplement with high-quality generated leads for the location
-    if len(leads) < limit:
-        prefixes = ["Apex", "Royal", "Prime", "Elite", "Metro", "Global", "NextGen", "Zenith", "Sunrise", "BlueChip", "Signature", "City", "Modern", "United", "Supreme"]
-        suffixes = ["Hub", "Solutions", "Center", "Studio", "Point", "Agency", "Group", "Enterprises", "Care", "Ventures", "Services", "Zone"]
-        areas = ["Central", "Hitec City", "Banjara Hills", "Jubilee Hills", "Gachibowli", "MG Road", "Indiranagar", "Koramangala", "Connaught Place", "Whitefield", "Andheri", "Bandra"]
-
-        needed = limit - len(leads)
-        random.seed(f"{clean_query}_{clean_location}")
-
-        for i in range(needed):
-            p = random.choice(prefixes)
-            s = random.choice(suffixes)
-            biz_name = f"{p} {clean_query.title()} {s}"
-            area = random.choice(areas)
-            
-            # Generate Indian standard 10 digit mobile numbers with +91
-            mob_prefix = random.choice(["98", "99", "97", "96", "95", "94", "93", "91", "88", "87", "89", "70", "79"])
-            mob_rest = "".join([str(random.randint(0, 9)) for _ in range(8)])
-            phone = f"+91 {mob_prefix}{mob_rest}"
-
-            rating = round(random.uniform(4.1, 4.9), 1)
-            reviews_count = random.randint(25, 520)
-            addr = f"Plot No. {random.randint(10, 800)}, Road No. {random.randint(1, 45)}, {area}, {clean_location}"
-            website_slug = re.sub(r"[^a-z0-9]", "", biz_name.lower())
-            
-            leads.append({
-                "id": f"gmap_synth_{len(leads) + 1}",
-                "business_name": biz_name,
-                "phone": phone,
-                "category": clean_query.title(),
-                "rating": str(rating),
-                "reviews_count": reviews_count,
-                "address": addr,
-                "website": f"https://www.{website_slug}.com",
-                "latitude": round(random.uniform(17.3, 17.5), 6),
-                "longitude": round(random.uniform(78.3, 78.5), 6),
-                "verified": True,
-            })
-
-    return leads[:limit]
+        with urllib.request.urlopen(request, timeout=10) as response:
+            items = json.loads(response.read(2_000_000))
+    except (OSError, ValueError):
+        raise HTTPException(502, "Live directory search is unavailable; no generated leads were substituted") from None
+    if not isinstance(items, list):
+        raise HTTPException(502, "Unexpected directory response")
+    leads = []
+    for item in items:
+        tags = item.get("extratags") or {}
+        phone = tags.get("phone") or tags.get("contact:phone") or tags.get("contact:mobile")
+        leads.append({
+            "id": f"osm_{item.get('osm_type')}_{item.get('osm_id')}",
+            "business_name": item.get("name") or item.get("display_name", "").split(",")[0],
+            "phone": re.sub(r"[^\d+]", "", phone) if phone else None,
+            "category": item.get("type") or query,
+            "rating": None, "reviews_count": None,
+            "address": item.get("display_name"),
+            "website": tags.get("website") or tags.get("contact:website"),
+            "latitude": item.get("lat"), "longitude": item.get("lon"),
+            "verified": False, "source": "OpenStreetMap",
+        })
+    return leads
 
 
 def import_gmaps_leads_to_customers(

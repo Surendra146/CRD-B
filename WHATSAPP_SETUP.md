@@ -9,6 +9,8 @@ and sender that successfully sends from Meta's API testing screen:
 - `WHATSAPP_ACCESS_TOKEN`: a valid token authorized to send for that sender
 - `META_APP_SECRET`: Meta application's secret, used for webhook signature verification
 - `WHATSAPP_VERIFY_TOKEN`: the verification token configured in Meta
+- `WHATSAPP_ALLOWED_ORGANIZATION_IDS`: numeric CRM organization ID(s) explicitly
+  authorized to use this backend sender; required for production sends
 
 Do not put these credentials in frontend `VITE_*` variables. Local `.env` changes
 do not update Render environment variables.
@@ -39,7 +41,8 @@ statuses and errors in the broadcast queue. `accepted` waits for a callback;
 delivery before retrying to avoid duplicate messages.
 
 Immediate broadcasts currently process at most 20 recipients synchronously.
-Large campaigns, automatic scheduling, and attachment uploads require a durable
-worker and media implementation. They are rejected rather than silently marked
-delivered. Existing historical records created by the old placeholder code are
+Large campaigns, automatic scheduling, and local attachment uploads require a durable
+worker and upload implementation. Public HTTPS image, video and document URLs
+are supported, one per message. Unsupported operations are rejected rather than
+silently marked delivered. Existing historical records created by the old placeholder code are
 not evidence of delivery and are not resent automatically.

@@ -41,7 +41,7 @@ async def receive_whatsapp(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(503, "META_APP_SECRET is required to verify WhatsApp webhooks")
     body = await request.body()
     expected = "sha256=" + hmac.new(settings.meta_app_secret.encode(), body, hashlib.sha256).hexdigest()
-    if not secrets.compare_digest(request.headers.get("x-hub-signature-256", ""), expected):
+    if not secrets.compare_digest(request.headers.get("x-hub-signature-256", "").encode(), expected.encode()):
         raise HTTPException(403, "Invalid webhook signature")
     try:
         payload = json.loads(body)
@@ -49,12 +49,23 @@ async def receive_whatsapp(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(400, "Invalid webhook JSON") from None
     if not isinstance(payload, dict) or payload.get("object") != "whatsapp_business_account":
         raise HTTPException(400, "Invalid WhatsApp webhook object")
-    for entry in payload.get("entry", []):
+    entries = payload.get("entry", [])
+    if not isinstance(entries, list):
+        raise HTTPException(400, "Invalid webhook entries")
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("changes", []), list):
+            raise HTTPException(400, "Invalid webhook changes")
         for change in entry.get("changes", []):
+            if not isinstance(change, dict):
+                raise HTTPException(400, "Invalid webhook change")
             value = change.get("value") or {}
+            if not isinstance(value, dict) or not isinstance(value.get("metadata", {}), dict) or not isinstance(value.get("statuses", []), list):
+                raise HTTPException(400, "Invalid webhook value")
             if str(value.get("metadata", {}).get("phone_number_id")) != settings.whatsapp_phone_number_id:
                 continue
             for status in value.get("statuses", []):
+                if not isinstance(status, dict):
+                    raise HTTPException(400, "Invalid webhook status")
                 message_id = status.get("id")
                 if not message_id:
                     continue

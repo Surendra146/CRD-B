@@ -40,6 +40,8 @@ services:
         sync: false
       - key: META_APP_SECRET
         sync: false
+      - key: WHATSAPP_ALLOWED_ORGANIZATION_IDS
+        sync: false
       - key: CORS_ORIGINS
         sync: false
 

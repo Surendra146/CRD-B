@@ -95,7 +95,7 @@ def test_bulk_dispatch_records_provider_acceptance_and_failure(settings, monkeyp
         return {"status": "accepted", "message_id": "wamid.bulk", "phone": meta.normalize_phone(phone)}
     monkeypatch.setattr(communications, "send_message", provider)
     user = SimpleNamespace(tenant_id=1, organization_id=2, tenant_code="test", id=3)
-    request = WhatsAppBulkSendRequest(audience_type="custom_numbers", audience={"numbers": ["9000000000", "9000000001"]}, message="Hello")
+    request = WhatsAppBulkSendRequest(audience_type="custom_numbers", audience={"numbers": ["9000000000", "9000000001"]}, message="Hello", batch_delay_seconds=0)
     result = communications.send_bulk_whatsapp(request, user, db)
     assert result["data"]["stats"] == {"total": 2, "sent": 1, "delivered": 0, "failed": 1, "pending": 1}
     assert [r["status"] for r in db.job.recipients_summary] == ["accepted", "failed"]

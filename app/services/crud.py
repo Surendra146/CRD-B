@@ -8,6 +8,8 @@ from app.utils.helpers import model_to_dict
 
 
 def paginate(db: Session, statement: Select, page: int, limit: int) -> dict[str, Any]:
+    if page < 1 or not 1 <= limit <= 200:
+        raise HTTPException(400, "Use page >= 1 and a limit between 1 and 200")
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     rows = db.scalars(statement.offset((page - 1) * limit).limit(limit)).all()
     return {
@@ -31,9 +33,13 @@ def get_owned(db: Session, model: Any, record_id: int, organization_id: int):
 
 def apply_payload(record: Any, payload: dict[str, Any], field_map: dict[str, str] | None = None) -> None:
     field_map = field_map or {}
-    for key, value in payload.items():
-        target = field_map.get(key, key)
-        if hasattr(record, target):
+    protected = {"id", "tenant_id", "organization_id", "tenant_code", "created_by", "owner_id", "created_at", "updated_at"}
+    columns = set(record.__table__.columns.keys())
+    targets = [(field_map.get(key, key), value) for key, value in payload.items()]
+    if any(target in protected for target, _ in targets):
+        raise HTTPException(400, "Record identity and ownership cannot be changed")
+    for target, value in targets:
+        if target in columns:
             setattr(record, target, value)
 
 

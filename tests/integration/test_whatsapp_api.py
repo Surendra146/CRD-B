@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 
 def test_dispatch_then_webhook_updates_persisted_job(client, account, monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "whatsapp_phone_number_id", "sender-123")
+    monkeypatch.setattr(settings, "whatsapp_phone_number_id", "123")
     monkeypatch.setattr(settings, "whatsapp_access_token", "test-token")
     monkeypatch.setattr(settings, "meta_app_secret", "test-app-secret")
     monkeypatch.setattr(communications, "send_message", lambda *args, **kwargs: {
@@ -27,7 +27,7 @@ def test_dispatch_then_webhook_updates_persisted_job(client, account, monkeypatc
     job_id = job.get("id") or job["_id"]
     assert job["recipients_summary"][0]["status"] == "accepted"
     body = json.dumps({"object": "whatsapp_business_account", "entry": [{"changes": [{"value": {
-        "metadata": {"phone_number_id": "sender-123"},
+        "metadata": {"phone_number_id": "123"},
         "statuses": [{"id": "wamid.integration", "status": "delivered", "timestamp": "1791283200"}],
     }}]}]}).encode()
     signature = "sha256=" + hmac.new(b"test-app-secret", body, hashlib.sha256).hexdigest()

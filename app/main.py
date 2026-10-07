@@ -12,6 +12,8 @@ from app.database.connection import SessionLocal, create_all
 from app.routers import register_routers
 from app.services.permissions import backfill_owner_modules
 from app.socket.connection import set_socket_manager
+from app.middlewares.request_limits import RequestLimitMiddleware
+from app.middlewares.auth_rate_limit import AuthRateLimitMiddleware
 
 
 @asynccontextmanager
@@ -29,6 +31,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 def create_socket_app(fastapi_app: FastAPI, settings):
     if not settings.enable_socket_progress:
+        set_socket_manager(None)
+        return fastapi_app
+
+    # The legacy socket subscription route has no tenant authentication.
+    # Use the authenticated upload-status HTTP endpoint until it is replaced.
+    if settings.environment.lower() == "production":
         set_socket_manager(None)
         return fastapi_app
 
@@ -69,6 +77,8 @@ def create_socket_app(fastapi_app: FastAPI, settings):
 def create_app():
     settings = get_settings()
     fastapi_app = FastAPI(title="HanuRam Tech API", lifespan=lifespan)
+    fastapi_app.add_middleware(RequestLimitMiddleware)
+    fastapi_app.add_middleware(AuthRateLimitMiddleware)
 
     fastapi_app.add_middleware(
         CORSMiddleware,

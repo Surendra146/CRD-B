@@ -117,7 +117,8 @@ def filter_phone_numbers(
                 "original": raw,
                 "formatted": formatted_number,
                 "country_code": "+" + cleaned_default_prefix,
-                "whatsapp_ready": True,
+                "whatsapp_ready": None,
+                "validation": "format_only",
             })
 
     return {

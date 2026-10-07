@@ -12,7 +12,7 @@ class Settings:
     def __init__(self) -> None:
         raw_db_url = os.getenv(
             "DATABASE_URL",
-            "postgresql+psycopg://postgres:Psql%40123@localhost:5432/cm_db",
+            "postgresql+psycopg://localhost:5432/cm_db",
         )
         # Normalize Render / cloud PostgreSQL URLs for psycopg v3 dialect
         if raw_db_url.startswith("postgres://"):
@@ -35,6 +35,9 @@ class Settings:
         self.whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
         self.meta_app_secret: str = os.getenv("META_APP_SECRET", "")
         self.whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+        self.whatsapp_allowed_organization_ids: set[int] = {
+            int(value.strip()) for value in os.getenv("WHATSAPP_ALLOWED_ORGANIZATION_IDS", "").split(",") if value.strip()
+        }
 
         self.jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))

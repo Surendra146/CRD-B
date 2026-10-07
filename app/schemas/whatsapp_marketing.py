@@ -2,9 +2,10 @@ from datetime import datetime
 from typing import Any
 
 from .common import PayloadSchema
+from .communication import CommunicationRequest
 
 
-class WhatsAppBulkSendRequest(PayloadSchema):
+class WhatsAppBulkSendRequest(CommunicationRequest):
     title: str = "WhatsApp Campaign"
     audience_type: str = "segment"
     audience: dict[str, Any] = {}

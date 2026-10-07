@@ -3,11 +3,22 @@ import json
 import re
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
+from urllib.parse import urlparse
+import ipaddress
 
 from fastapi import HTTPException
 
 from app.config.settings import get_settings
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# Never forward Meta bearer credentials to a redirected destination.
+urlopen = build_opener(NoRedirect()).open
 
 
 def require_configuration():
@@ -16,6 +27,8 @@ def require_configuration():
         raise HTTPException(503, "Only the meta_cloud WhatsApp provider is supported")
     if not settings.whatsapp_phone_number_id or not settings.whatsapp_access_token:
         raise HTTPException(503, "Configure WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN on the backend")
+    if not re.fullmatch(r"\d+", settings.whatsapp_phone_number_id) or not re.fullmatch(r"v\d+\.\d+", settings.whatsapp_graph_version):
+        raise HTTPException(503, "Invalid backend Meta phone number ID or Graph API version")
     return settings
 
 
@@ -40,9 +53,32 @@ def build_message(phone, message, *, template=None, buttons=None, media_files=No
             raise HTTPException(400, "An approved Meta template requires a name and language.code")
         payload.update(type="template", template=template)
     elif media_files:
-        # Browser blob URLs and local files are not accessible to Meta.
-        raise HTTPException(400, "Attachment sending is not implemented. Send text or an approved Meta template instead")
+        if len(media_files) != 1 or buttons:
+            raise HTTPException(400, "Send one public media URL per message, without buttons")
+        media = media_files[0]
+        kind = media.get("type")
+        link = media.get("url") or ""
+        parsed = urlparse(link)
+        if kind not in {"image", "video", "document"} or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise HTTPException(400, "Use a public HTTPS image, video or document URL; local uploads and blob URLs are not supported")
+        if parsed.hostname == "localhost" or parsed.hostname.endswith((".localhost", ".local")):
+            raise HTTPException(400, "Media URLs must be publicly accessible")
+        try:
+            if not ipaddress.ip_address(parsed.hostname).is_global:
+                raise HTTPException(400, "Media URLs must be publicly accessible")
+        except ValueError:
+            pass
+        content = {"link": link}
+        if message:
+            if len(message) > 1024:
+                raise HTTPException(400, "Media captions are limited to 1024 characters")
+            content["caption"] = message
+        if kind == "document" and media.get("name"):
+            content["filename"] = str(media["name"])[:255]
+        payload.update(type=kind, **{kind: content})
     elif buttons:
+        if not str(message or "").strip() or len(message) > 1024:
+            raise HTTPException(400, "Interactive message text must contain 1 to 1024 characters")
         if len(buttons) > 3 or any(b.get("type") != "quick_reply" for b in buttons):
             raise HTTPException(400, "Free-form messages support up to three quick-reply buttons; URL and phone buttons require an approved Meta template")
         replies = [{"type": "reply", "reply": {"id": str(b.get("id") or i), "title": str(b.get("text") or "")}} for i, b in enumerate(buttons)]
@@ -76,10 +112,10 @@ def send_message(phone, message, **options):
         # Never return the request, authorization headers, or raw provider body.
         code = details.get("code")
         raise HTTPException(502, {"message": "Meta rejected the WhatsApp message", "code": code, "provider_message": str(details.get("message") or "Check Meta credentials and messaging permissions").replace(settings.whatsapp_access_token, "[redacted]")}) from None
-    except (URLError, TimeoutError, ValueError):
+    except (URLError, TimeoutError, OSError, ValueError):
         raise HTTPException(502, "Meta could not confirm acceptance. Check delivery before retrying to avoid duplicates") from None
-    messages = result.get("messages") or []
-    if not messages or not messages[0].get("id"):
+    messages = result.get("messages") if isinstance(result, dict) else None
+    if not isinstance(messages, list) or not messages or not isinstance(messages[0], dict) or not messages[0].get("id"):
         raise HTTPException(502, "Meta did not return a message ID; delivery is unconfirmed")
     return {"message_id": messages[0]["id"], "status": "accepted", "phone": payload["to"]}
 
@@ -103,7 +139,11 @@ def apply_status(recipient, status):
     state = status.get("status")
     if state not in {"sent", "delivered", "read", "failed"}:
         return recipient
-    timestamp = int(status.get("timestamp") or 0)
+    try:
+        timestamp = int(status.get("timestamp") or 0)
+        status_time = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+    except (ValueError, TypeError, OSError, OverflowError):
+        return recipient
     if timestamp < int(recipient.get("status_timestamp") or 0):
         return recipient
     rank = {"queued": 0, "accepted": 1, "sent": 2, "failed": 3, "delivered": 4, "read": 5}
@@ -111,7 +151,7 @@ def apply_status(recipient, status):
         return recipient
     result = {**recipient, "status": state, "status_timestamp": timestamp}
     if state in {"delivered", "read"}:
-        result["delivered_at"] = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+        result["delivered_at"] = recipient.get("delivered_at") or status_time
         result.pop("error", None)
     if state == "failed":
         result["error"] = status.get("errors") or [{"message": "Meta reported delivery failure"}]

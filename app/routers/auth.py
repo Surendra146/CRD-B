@@ -21,7 +21,7 @@ from app.schemas.auth import (
     RoleRequest,
     UpdateProfileRequest,
 )
-from app.services.security import create_token, ensure_tenant_access, get_current_user, hash_password, require_organization, tenant_id_for_user, verify_password
+from app.services.security import create_token, ensure_tenant_access, get_current_user, hash_password, require_organization, require_owner, tenant_id_for_user, verify_password
 from app.services.permissions import resolve_allowed_modules
 
 
@@ -73,16 +73,14 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 def verify_phone_otp(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    user.phone_verified = True
-    db.commit()
-    return {"success": True, "message": "Phone verified"}
+    raise HTTPException(501, "Phone verification requires a real OTP provider and verified challenge")
 
 
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
     email = str(payload_data.get("email", "")).strip().lower()
     user = db.scalar(select(User).where(User.email == email))
-    if not user or not verify_password(str(payload_data.get("password", "")), user.password):
+    if not user or not user.is_active or not verify_password(str(payload_data.get("password", "")), user.password):
         raise HTTPException(401, "Invalid credentials")
     if not user.password.startswith(("$2a$", "$2b$", "$2y$")):
         user.password = hash_password(str(payload_data.get("password", "")))
@@ -108,7 +106,7 @@ def refresh(user: User = Depends(get_current_user)):
 
 
 def forgot_password(payload: ForgotPasswordRequest):
-    return {"success": True, "message": "Password reset request accepted"}
+    raise HTTPException(501, "Password reset email delivery is not configured")
 
 
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
@@ -158,12 +156,16 @@ def get_members(user: User = Depends(require_organization), db: Session = Depend
 
 def create_member(payload: MemberCreateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
+    if not payload_data.get("password"):
+        raise HTTPException(400, "An explicit initial password is required; no default password is used")
+    if payload_data.get("role") == "owner":
+        raise HTTPException(400, "Ownership cannot be granted through member creation")
     email = str(payload_data.get("email", "")).strip().lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "User already exists")
     member = User(
         email=email,
-        password=hash_password(str(payload_data.get("password", "password123"))),
+        password=hash_password(payload_data["password"]),
         name=payload_data.get("name") or payload_data.get("email"),
         phone=payload_data.get("phone"),
         role=payload_data.get("role", "member"),
@@ -185,6 +187,8 @@ def update_member(user_id: int, payload: MemberUpdateRequest, user: User = Depen
     if not member:
         raise HTTPException(404, "Member not found")
     ensure_tenant_access(member, user, "Member")
+    if member.role == "owner":
+        raise HTTPException(400, "Use your profile settings to edit the owner account")
     for field in ("name", "phone", "is_active", "allowed_modules"):
         if field in payload_data:
             setattr(member, field, payload_data[field])
@@ -198,6 +202,8 @@ def update_member_role(user_id: int, payload: MemberRoleUpdateRequest, user: Use
     if not member:
         raise HTTPException(404, "Member not found")
     ensure_tenant_access(member, user, "Member")
+    if member.role == "owner" or payload_data.get("role") == "owner":
+        raise HTTPException(400, "Ownership cannot be changed through member roles")
     member.role = payload_data.get("role", member.role)
     member.role_profile_name = payload_data.get("roleProfileName", member.role_profile_name)
     member.allowed_modules = resolve_allowed_modules(member.role, payload_data.get("allowedModules", member.allowed_modules))
@@ -250,11 +256,11 @@ router.post("/reset-password")(reset_password)
 router.put("/profile")(update_profile)
 router.put("/password")(change_password)
 router.get("/organization-settings")(get_organization_settings)
-router.patch("/organization-settings")(update_organization_settings)
-router.get("/members")(get_members)
-router.post("/members")(create_member)
-router.patch("/members/{user_id}")(update_member)
-router.patch("/members/{user_id}/role")(update_member_role)
+router.patch("/organization-settings", dependencies=[Depends(require_owner)])(update_organization_settings)
+router.get("/members", dependencies=[Depends(require_owner)])(get_members)
+router.post("/members", dependencies=[Depends(require_owner)])(create_member)
+router.patch("/members/{user_id}", dependencies=[Depends(require_owner)])(update_member)
+router.patch("/members/{user_id}/role", dependencies=[Depends(require_owner)])(update_member_role)
 router.get("/roles")(get_roles)
-router.post("/roles")(create_role)
-router.patch("/roles/{role_key}")(update_role)
+router.post("/roles", dependencies=[Depends(require_owner)])(create_role)
+router.patch("/roles/{role_key}", dependencies=[Depends(require_owner)])(update_role)

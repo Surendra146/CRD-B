@@ -1,4 +1,5 @@
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Depends
+from app.services.security import require_module
 
 from app.routers import (
     analytics,
@@ -21,6 +22,7 @@ ROUTERS = (
     (customers.router, "/api/customers", ["customers"]),
     (campaigns.router, "/api/campaigns", ["campaigns"]),
     (communications.router, "/api/communications", ["communications"]),
+    (communications.configuration_router, "/api/communications", ["communications"]),
     (marketing_tools.router, "/api/marketing", ["marketing"]),
     (notifications.router, "/api/notifications", ["notifications"]),
     (templates.router, "/api/templates", ["templates"]),
@@ -36,6 +38,15 @@ ROUTERS = (
 
 def register_routers(app: FastAPI) -> None:
     for router, prefix, tags in ROUTERS:
-        app.include_router(router, prefix=prefix, tags=tags)
+        permissions = {
+            "customers": ("customers",), "campaigns": ("campaigns",),
+            "marketing": ("whatsapp",), "templates": ("templates", "whatsapp"),
+            "segments": ("segments", "campaigns"), "analytics": ("analytics", "dashboards", "custom-dashboards"),
+            "excel": ("excel", "import", "custom-dashboards"),
+            "uploads": ("uploads", "import", "reports"), "notifications": ("notifications",),
+        }
+        modules = permissions.get(tags[0])
+        dependencies = [Depends(require_module(*modules))] if modules else []
+        app.include_router(router, prefix=prefix, tags=tags, dependencies=dependencies)
 
 
