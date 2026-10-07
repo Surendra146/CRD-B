@@ -126,12 +126,6 @@ def require_owner(user: User = Depends(require_organization)) -> User:
 
 
 def require_whatsapp_access(user: User = Depends(require_organization)) -> User:
-    settings = get_settings()
-    allowed = settings.whatsapp_allowed_organization_ids
-    if settings.environment.lower() == "production" and not allowed:
-        raise HTTPException(503, "Configure WHATSAPP_ALLOWED_ORGANIZATION_IDS to authorize use of the backend Meta sender")
-    if allowed and user.organization_id not in allowed:
-        raise HTTPException(403, "This organization is not authorized to use the configured Meta sender")
     if user.role != "owner" and "whatsapp" not in (user.allowed_modules or []):
         raise HTTPException(403, "WhatsApp permission is required")
     return user

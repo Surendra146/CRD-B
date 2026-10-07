@@ -17,6 +17,7 @@ from app.services.security import (
 )
 from app.services.whatsapp_service import personalize_message
 from app.services.meta_whatsapp import build_message, require_configuration, send_message, update_stats
+from app.services.whatsapp_connections import get_connection, resolve_credentials, public_connection
 from app.utils.helpers import model_to_dict
 
 
@@ -24,24 +25,25 @@ def communication_payload(payload: CommunicationRequest) -> dict:
     return payload.to_payload()
 
 
-def send_whatsapp(payload: CommunicationRequest):
+def send_whatsapp(payload: CommunicationRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = communication_payload(payload)
     result = send_message(
         payload_data.get("phone") or payload_data.get("to"), payload_data.get("message") or "",
         template=payload_data.get("template"), buttons=payload_data.get("buttons"),
         media_files=payload_data.get("media_files"),
+        connection=resolve_credentials(db, user),
     )
     return {"success": True, "message": "Meta accepted the WhatsApp message; delivery is not yet confirmed", "data": result}
 
 
-def send_whatsapp_message(payload: CommunicationRequest):
-    return send_whatsapp(payload)
+def send_whatsapp_message(payload: CommunicationRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    return send_whatsapp(payload, user, db)
 
 
-def send_communication(payload: CommunicationRequest):
+def send_communication(payload: CommunicationRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     if payload.to_payload().get("channel", "whatsapp") != "whatsapp":
         raise HTTPException(400, "Only WhatsApp communication is supported")
-    return send_whatsapp(payload)
+    return send_whatsapp(payload, user, db)
 
 
 router = APIRouter(dependencies=[Depends(require_whatsapp_access)])
@@ -79,7 +81,8 @@ def send_bulk_whatsapp(
     scheduled_at = None
     if scheduled_at_raw:
         raise HTTPException(400, "Automatic scheduled sending is not implemented. Choose Send Immediately")
-    require_configuration()
+    connection = resolve_credentials(db, user)
+    require_configuration(connection)
 
     # Resolve target recipients
     recipients_data: list[dict[str, Any]] = []
@@ -169,7 +172,7 @@ def send_bulk_whatsapp(
         tenant_code=user.tenant_code,
         title=req.get("title") or f"Bulk Broadcast {datetime.utcnow().strftime('%b %d, %H:%M')}",
         audience_type=audience_type,
-        audience_payload=audience,
+        audience_payload={**audience, "sender_phone_number_id": connection.whatsapp_phone_number_id},
         message_template=message_text,
         buttons=buttons,
         media_files=media_files,
@@ -191,7 +194,7 @@ def send_bulk_whatsapp(
             time.sleep(batch_delay)
         try:
             result = send_message(recipient["phone"], recipient["personalized_message"],
-                                  template=req.get("template"), buttons=buttons, media_files=media_files)
+                                  template=req.get("template"), buttons=buttons, media_files=media_files, connection=connection)
             recipient.update(result)
         except HTTPException as error:
             uncertain = isinstance(error.detail, str) and any(
@@ -241,14 +244,15 @@ def list_bulk_jobs(
 
 
 @configuration_router.get("/whatsapp/configuration")
-def whatsapp_configuration(user: User = Depends(require_organization)):
+def whatsapp_configuration(user: User = Depends(require_organization), db: Session = Depends(get_db)):
     from app.config.settings import get_settings
     settings = get_settings()
+    connection = public_connection(get_connection(db, user))
     return {"success": True, "data": {
         "organization_id": user.organization_id,
-        "sender_configured": bool(settings.whatsapp_phone_number_id and settings.whatsapp_access_token),
+        "sender_configured": connection["connected"],
         "webhook_secret_configured": bool(settings.meta_app_secret),
-        "organization_authorized": user.organization_id in settings.whatsapp_allowed_organization_ids,
+        "organization_authorized": connection["connected"],
         "live_features": ["text", "approved_templates", "quick_reply_buttons", "public_https_media", "delivery_webhooks"],
         "unavailable_features": ["automatic_scheduling", "local_media_upload", "automatic_replies", "group_joining", "whatsapp_number_lookup"],
     }}

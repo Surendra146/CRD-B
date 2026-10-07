@@ -1,48 +1,46 @@
-# WhatsApp on Render
+# Tenant WhatsApp connections on Render
 
-Set these **backend** Render environment variables using the same Meta application
-and sender that successfully sends from Meta's API testing screen:
+Each organization owner connects their own WhatsApp Business account in Settings using Meta Embedded Signup. Organization IDs and individual sender tokens do not need to be entered in Render.
 
-- `WHATSAPP_PROVIDER=meta_cloud`
-- `WHATSAPP_GRAPH_VERSION=v23.0` (or the supported version configured for your app)
-- `WHATSAPP_PHONE_NUMBER_ID`: sender's **phone number ID**, not its phone number or WABA ID
-- `WHATSAPP_ACCESS_TOKEN`: a valid token authorized to send for that sender
-- `META_APP_SECRET`: Meta application's secret, used for webhook signature verification
-- `WHATSAPP_VERIFY_TOKEN`: the verification token configured in Meta
-- `WHATSAPP_ALLOWED_ORGANIZATION_IDS`: numeric CRM organization ID(s) explicitly
-  authorized to use this backend sender; required for production sends
+## Shared configuration: set once
 
-Do not put these credentials in frontend `VITE_*` variables. Local `.env` changes
-do not update Render environment variables.
+Set these backend Render environment variables:
 
-In Meta, configure the callback URL as
-`https://<your-backend>.onrender.com/api/webhooks/whatsapp`, verify it with the
-configured verification token, and subscribe to the `messages` webhook field.
-The GET endpoint verifies the callback; POST verifies Meta's signature and saves
-delivery statuses and errors against the returned message IDs.
+- `META_APP_ID`: your Meta App ID.
+- `WHATSAPP_SIGNUP_CONFIG_ID`: Facebook Login for Business Embedded Signup Configuration ID.
+- `META_APP_SECRET`: keep this private on the backend.
+- `WHATSAPP_TOKEN_ENCRYPTION_KEY`: a stable Fernet key or a random secret of at least 32 characters. Keep it private and backed up. Changing it requires organizations to reconnect. The blueprint generates it for new services; configure it manually once for an existing service.
+- `WHATSAPP_VERIFY_TOKEN`: your private webhook verification value.
+- `WHATSAPP_PROVIDER=meta_cloud` and `WHATSAPP_GRAPH_VERSION=v23.0` (or a supported version configured for your app).
 
-For the first application test, send to the **same recipient** that received the
-Meta test. Indian 10-digit local numbers are prefixed with `91`; other countries
-should use explicit international numbers. A Meta test sender may only send to
-recipients registered and verified in its API testing screen.
+Configure the production frontend domain in Meta and a WhatsApp Embedded Signup configuration requesting `whatsapp_business_management` and `whatsapp_business_messaging`. Complete Meta's applicable business verification, app review, advanced access and live-mode requirements before onboarding other businesses. Code cannot grant those approvals.
 
-Free-form text and quick replies require an open customer service window. Have
-the intended recipient message the configured business number first, then send
-your reply. To initiate a conversation outside that window, use an approved Meta
-template with its exact name and language. The bulk composer accepts the name
-and language for approved templates with no dynamic parameters; parameterized
-templates can be sent through the API using a `template` object with `components`.
-Saved CRM message text is not automatically an approved Meta template.
+Do not put secrets in frontend VITE variables. Local .env changes do not update Render. Legacy `WHATSAPP_ALLOWED_ORGANIZATION_IDS`, `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_ACCESS_TOKEN` are no longer used. Existing shared credentials are not automatically assigned to a tenant.
 
-An API acceptance (`wamid` message ID) is **not** delivery. Inspect recipient
-statuses and errors in the broadcast queue. `accepted` waits for a callback;
-`delivered` or `read` confirms delivery; `failed` includes Meta's error code.
-`unknown` means a timeout or invalid response left acceptance uncertain: check
-delivery before retrying to avoid duplicate messages.
+## Webhooks and database
 
-Immediate broadcasts currently process at most 20 recipients synchronously.
-Large campaigns, automatic scheduling, and local attachment uploads require a durable
-worker and upload implementation. Public HTTPS image, video and document URLs
-are supported, one per message. Unsupported operations are rejected rather than
-silently marked delivered. Existing historical records created by the old placeholder code are
-not evidence of delivery and are not resent automatically.
+Configure `https://crd-b.onrender.com/api/webhooks/whatsapp` in Meta, verify it with your verification token, and subscribe to the messages field. Connecting a tenant also subscribes this app to its authorized WABA. POST callbacks require a valid Meta signature and match both the sender and WABA to the tenant connection.
+
+The release adds whatsapp_connections and whatsapp_signup_attempts tables. AUTO_CREATE_TABLES creates missing tables at startup. Deployments already managed by Alembic should run `alembic upgrade head` against a correctly stamped database. Do not stamp or migrate an unfamiliar production database blindly.
+
+## Owner onboarding
+
+1. Open Settings and choose Connect WhatsApp.
+2. Choose Continue with Meta and authorize your business account.
+3. Select a phone number from the assets verified by the backend with Meta.
+4. If this is a new number needing API registration, select that option and enter its six-digit registration PIN.
+5. Confirm the connection.
+
+Only the organization owner can connect or disconnect. Signup attempts expire after ten minutes and are bound to the user, tenant and organization. The backend validates the token's app, permissions and authorized assets. Tokens are encrypted with tenant-bound data and never returned to the browser.
+
+Every send resolves the signed-in organization's connection. Missing or expired connections are rejected; there is no shared sender fallback. Disconnect removes this CRM's stored credentials and stops its sends. It does not delete Meta assets or revoke permissions in Meta; the owner can revoke those separately in Meta.
+
+## Delivery and limits
+
+Meta accepting a message is not proof of delivery. A delivered or read webhook confirms delivery; failed includes the provider error. Free-form messages require an open customer service window; otherwise use an approved Meta template with its exact language and parameters. Test senders have recipient restrictions.
+
+Immediate broadcasts process at most 20 recipients synchronously. Scheduling, large campaigns, automatic replies and local media uploads still require additional implementation. Public HTTPS media URLs are supported. Single sends do not have persistent broadcast-job delivery history. Historical placeholder success records are not delivery evidence and are not resent.
+
+## Verification
+
+Local unit/security tests and frontend build/lint validate the implementation. PostgreSQL integration tests cover signup, replay prevention, sender ownership, encrypted storage, tenant sends and signed callback isolation; run against a dedicated *_test database or GitHub CI. No real customer messages are sent by these tests. Live onboarding and phone delivery require the shared Render settings and Meta approvals above.

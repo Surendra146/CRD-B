@@ -11,11 +11,18 @@ from app.routers import communications
 pytestmark = pytest.mark.integration
 
 
-def test_dispatch_then_webhook_updates_persisted_job(client, account, monkeypatch):
+def test_dispatch_then_webhook_updates_persisted_job(client, account, monkeypatch, db_session):
     settings = get_settings()
-    monkeypatch.setattr(settings, "whatsapp_phone_number_id", "123")
-    monkeypatch.setattr(settings, "whatsapp_access_token", "test-token")
     monkeypatch.setattr(settings, "meta_app_secret", "test-app-secret")
+    from cryptography.fernet import Fernet
+    from app.models import WhatsAppConnection
+    from app.services.whatsapp_connections import encrypt_token
+    monkeypatch.setattr(settings, "whatsapp_token_encryption_key", Fernet.generate_key().decode())
+    tenant_id = account["user"]["tenant_id"]
+    org_id = account["user"]["organization_id"]
+    db_session.add(WhatsAppConnection(tenant_id=tenant_id, organization_id=org_id, waba_id="999", phone_number_id="123", encrypted_access_token=encrypt_token("test-token", tenant_id, org_id), connected_by=account["user"]["id"]))
+    db_session.commit()
+
     monkeypatch.setattr(communications, "send_message", lambda *args, **kwargs: {
         "message_id": "wamid.integration", "status": "accepted", "phone": "919000000000",
     })
@@ -26,7 +33,7 @@ def test_dispatch_then_webhook_updates_persisted_job(client, account, monkeypatc
     job = sent.json()["data"]
     job_id = job.get("id") or job["_id"]
     assert job["recipients_summary"][0]["status"] == "accepted"
-    body = json.dumps({"object": "whatsapp_business_account", "entry": [{"changes": [{"value": {
+    body = json.dumps({"object": "whatsapp_business_account", "entry": [{"id": "999", "changes": [{"value": {
         "metadata": {"phone_number_id": "123"},
         "statuses": [{"id": "wamid.integration", "status": "delivered", "timestamp": "1791283200"}],
     }}]}]}).encode()

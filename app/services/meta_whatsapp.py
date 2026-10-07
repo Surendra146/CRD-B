@@ -21,12 +21,14 @@ class NoRedirect(HTTPRedirectHandler):
 urlopen = build_opener(NoRedirect()).open
 
 
-def require_configuration():
-    settings = get_settings()
+def require_configuration(connection=None):
+    if connection is None:
+        raise HTTPException(409, "Connect your organization's WhatsApp Business account in Settings first")
+    settings = connection
     if settings.whatsapp_provider != "meta_cloud":
         raise HTTPException(503, "Only the meta_cloud WhatsApp provider is supported")
     if not settings.whatsapp_phone_number_id or not settings.whatsapp_access_token:
-        raise HTTPException(503, "Configure WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN on the backend")
+        raise HTTPException(409, "Your organization's WhatsApp connection is incomplete. Reconnect in Settings")
     if not re.fullmatch(r"\d+", settings.whatsapp_phone_number_id) or not re.fullmatch(r"v\d+\.\d+", settings.whatsapp_graph_version):
         raise HTTPException(503, "Invalid backend Meta phone number ID or Graph API version")
     return settings
@@ -92,8 +94,8 @@ def build_message(phone, message, *, template=None, buttons=None, media_files=No
     return payload
 
 
-def send_message(phone, message, **options):
-    settings = require_configuration()
+def send_message(phone, message, *, connection=None, **options):
+    settings = require_configuration(connection)
     payload = build_message(phone, message, **options)
     request = Request(
         f"https://graph.facebook.com/{settings.whatsapp_graph_version}/{settings.whatsapp_phone_number_id}/messages",

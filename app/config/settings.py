@@ -31,13 +31,11 @@ class Settings:
         # Meta credentials and routing are server-owned; never expose to React.
         self.whatsapp_provider: str = os.getenv("WHATSAPP_PROVIDER", "meta_cloud")
         self.whatsapp_graph_version: str = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")
-        self.whatsapp_phone_number_id: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-        self.whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
         self.meta_app_secret: str = os.getenv("META_APP_SECRET", "")
         self.whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
-        self.whatsapp_allowed_organization_ids: set[int] = {
-            int(value.strip()) for value in os.getenv("WHATSAPP_ALLOWED_ORGANIZATION_IDS", "").split(",") if value.strip()
-        }
+        self.meta_app_id: str = os.getenv("META_APP_ID", "")
+        self.whatsapp_signup_config_id: str = os.getenv("WHATSAPP_SIGNUP_CONFIG_ID", "")
+        self.whatsapp_token_encryption_key: str = os.getenv("WHATSAPP_TOKEN_ENCRYPTION_KEY", "")
 
         self.jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))

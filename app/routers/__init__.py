@@ -15,6 +15,7 @@ from app.routers import (
     templates,
     uploads,
     webhooks,
+    whatsapp_connections,
 )
 
 ROUTERS = (
@@ -23,6 +24,7 @@ ROUTERS = (
     (campaigns.router, "/api/campaigns", ["campaigns"]),
     (communications.router, "/api/communications", ["communications"]),
     (communications.configuration_router, "/api/communications", ["communications"]),
+    (whatsapp_connections.router, "/api/whatsapp-connection", ["whatsapp"]),
     (marketing_tools.router, "/api/marketing", ["marketing"]),
     (notifications.router, "/api/notifications", ["notifications"]),
     (templates.router, "/api/templates", ["templates"]),

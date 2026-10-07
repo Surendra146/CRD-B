@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
 from app.database.connection import get_db
-from app.models import WhatsAppBulkJob
+from app.models import WhatsAppBulkJob, WhatsAppConnection
 from app.services.meta_whatsapp import apply_status, update_stats
 
 router = APIRouter()
@@ -61,7 +61,11 @@ async def receive_whatsapp(request: Request, db: Session = Depends(get_db)):
             value = change.get("value") or {}
             if not isinstance(value, dict) or not isinstance(value.get("metadata", {}), dict) or not isinstance(value.get("statuses", []), list):
                 raise HTTPException(400, "Invalid webhook value")
-            if str(value.get("metadata", {}).get("phone_number_id")) != settings.whatsapp_phone_number_id:
+            connection = db.scalar(select(WhatsAppConnection).where(
+                WhatsAppConnection.phone_number_id == str(value.get("metadata", {}).get("phone_number_id", "")),
+                WhatsAppConnection.waba_id == str(entry.get("id", "")),
+            ))
+            if not connection:
                 continue
             for status in value.get("statuses", []):
                 if not isinstance(status, dict):
@@ -70,7 +74,10 @@ async def receive_whatsapp(request: Request, db: Session = Depends(get_db)):
                 if not message_id:
                     continue
                 jobs = db.scalars(select(WhatsAppBulkJob).where(
-                    WhatsAppBulkJob.recipients_summary.contains([{"message_id": message_id}])
+                    WhatsAppBulkJob.recipients_summary.contains([{"message_id": message_id}]),
+                    WhatsAppBulkJob.tenant_id == connection.tenant_id,
+                    WhatsAppBulkJob.organization_id == connection.organization_id,
+                    WhatsAppBulkJob.audience_payload["sender_phone_number_id"].as_string() == connection.phone_number_id,
                 ).with_for_update()).all()
                 for job in jobs:
                     job.recipients_summary = [

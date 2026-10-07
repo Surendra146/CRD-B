@@ -21,6 +21,7 @@ def settings(monkeypatch):
     settings = SimpleNamespace(whatsapp_provider="meta_cloud", whatsapp_phone_number_id="123", whatsapp_access_token="private-token", whatsapp_graph_version="v23.0", meta_app_secret="test-app-secret")
     monkeypatch.setattr(meta, "get_settings", lambda: settings)
     monkeypatch.setattr(webhooks, "get_settings", lambda: settings)
+    monkeypatch.setattr(communications, "resolve_credentials", lambda db, user: settings)
     return settings
 
 
@@ -38,7 +39,7 @@ def test_single_send_really_calls_meta_and_does_not_claim_delivery(settings, mon
         assert payload["text"]["body"] == "Hello"
         return io.StringIO('{"messages":[{"id":"wamid.test"}]}')
     monkeypatch.setattr(meta, "urlopen", provider)
-    result = communications.send_whatsapp(CommunicationRequest(phone="8341645455", message="Hello"))
+    result = communications.send_whatsapp(CommunicationRequest(phone="8341645455", message="Hello"), SimpleNamespace(), object())
     assert result["data"]["message_id"] == "wamid.test"
     assert result["data"]["status"] == "accepted"
     assert "not yet confirmed" in result["message"]
@@ -49,7 +50,7 @@ def test_meta_rejection_is_not_success_and_token_is_redacted(settings, monkeypat
         raise HTTPError("https://graph.facebook.com", 400, "Bad Request", {}, io.BytesIO(b'{"error":{"code":190,"message":"invalid private-token"}}'))
     monkeypatch.setattr(meta, "urlopen", provider)
     with pytest.raises(HTTPException) as error:
-        meta.send_message("8341645455", "Hello")
+        meta.send_message("8341645455", "Hello", connection=settings)
     assert error.value.status_code == 502
     assert error.value.detail["code"] == 190
     assert "private-token" not in str(error.value.detail)
@@ -58,8 +59,8 @@ def test_meta_rejection_is_not_success_and_token_is_redacted(settings, monkeypat
 def test_missing_configuration_never_reports_success(settings):
     settings.whatsapp_access_token = ""
     with pytest.raises(HTTPException) as error:
-        meta.send_message("8341645455", "Hello")
-    assert error.value.status_code == 503
+        meta.send_message("8341645455", "Hello", connection=settings)
+    assert error.value.status_code == 409
 
 
 def test_no_silent_ignoring_of_attachments():
@@ -105,13 +106,14 @@ def test_bulk_dispatch_records_provider_acceptance_and_failure(settings, monkeyp
 def test_signed_webhook_is_registered_and_updates_actual_delivery(settings):
     job = SimpleNamespace(recipients_summary=[{"message_id": "wamid.test", "status": "accepted"}], stats={}, status="in_progress")
     class DB:
+        def scalar(self, query): return SimpleNamespace(tenant_id=1, organization_id=1, phone_number_id="123", waba_id="999")
         def scalars(self, query): return self
         def all(self): return [job]
         def commit(self): pass
     app = FastAPI()
     app.include_router(webhooks.router, prefix="/api/webhooks")
     app.dependency_overrides[get_db] = lambda: DB()
-    body = json.dumps({"object": "whatsapp_business_account", "entry": [{"changes": [{"value": {"metadata": {"phone_number_id": "123"}, "statuses": [{"id": "wamid.test", "status": "failed", "timestamp": "123", "errors": [{"code": 131047, "message": "Outside service window"}]}]}}]}]}).encode()
+    body = json.dumps({"object": "whatsapp_business_account", "entry": [{"id": "999", "changes": [{"value": {"metadata": {"phone_number_id": "123"}, "statuses": [{"id": "wamid.test", "status": "failed", "timestamp": "123", "errors": [{"code": 131047, "message": "Outside service window"}]}]}}]}]}).encode()
     signature = "sha256=" + hmac.new(settings.meta_app_secret.encode(), body, hashlib.sha256).hexdigest()
     with TestClient(app) as client:
         assert client.post("/api/webhooks/whatsapp", content=body).status_code == 403

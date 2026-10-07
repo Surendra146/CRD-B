@@ -16,8 +16,11 @@ from .tables import (
     WhatsAppTemplate,
 )
 from .registry import create_tables
+from .whatsapp_connection import WhatsAppConnection, WhatsAppSignupAttempt
 
 __all__ = (
+    "WhatsAppConnection",
+    "WhatsAppSignupAttempt",
     "Campaign",
     "Customer",
     "DataUpload",
