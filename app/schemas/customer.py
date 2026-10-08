@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, field_validator
 
 from .common import PayloadSchema
 
@@ -38,6 +38,14 @@ class CustomerUpdateRequest(PayloadSchema):
     tags: list[Any] | None = None
     notes: str | None = None
     module_tags: list[str] | None = Field(default=None, alias="moduleTags")
+
+
+    @field_validator("phone")
+    @classmethod
+    def reject_null_phone(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Phone Number must contain exactly 10 digits")
+        return value
 
 
 class PurchaseRequest(PayloadSchema):

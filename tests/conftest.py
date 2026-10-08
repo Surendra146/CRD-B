@@ -115,4 +115,4 @@ def account(account_factory):
 
 @pytest.fixture
 def customer_payload():
-    return {"externalId": "CUST-001", "name": "Asha Rao", "phone": "+91 98765 43210", "address": "12 Main Road", "customerCreatedDate": "2026-10-03", "tags": ["vip"], "demographics": {"city": "Pune"}}
+    return {"externalId": "CUST-001", "name": "Asha Rao", "phone": "9876543210", "address": "12 Main Road", "customerCreatedDate": "2026-10-03", "tags": ["vip"], "demographics": {"city": "Pune"}}
