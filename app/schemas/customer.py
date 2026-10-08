@@ -1,14 +1,17 @@
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
 from .common import PayloadSchema
+
+
+PhoneNumber = Annotated[str, StringConstraints(pattern=r"^[0-9]{10}$", min_length=10, max_length=10)]
 
 
 class CustomerCreateRequest(PayloadSchema):
     external_id: str = Field(alias="externalId", min_length=1)
     name: str = Field(min_length=1)
-    phone: str = Field(min_length=1)
+    phone: PhoneNumber
     address: str = Field(min_length=1)
     customer_created_date: str = Field(alias="customerCreatedDate", min_length=1)
     email: str | None = None
@@ -25,7 +28,7 @@ class CustomerUpdateRequest(PayloadSchema):
     external_id: str | None = Field(default=None, alias="externalId")
     name: str | None = None
     email: str | None = None
-    phone: str | None = None
+    phone: PhoneNumber | None = None
     whatsapp_number: str | None = Field(default=None, alias="whatsappNumber")
     address: str | None = None
     customer_created_date: str | None = Field(default=None, alias="customerCreatedDate")
