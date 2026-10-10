@@ -37,6 +37,17 @@ class Settings:
         self.whatsapp_signup_config_id: str = os.getenv("WHATSAPP_SIGNUP_CONFIG_ID", "")
         self.whatsapp_token_encryption_key: str = os.getenv("WHATSAPP_TOKEN_ENCRYPTION_KEY", "")
 
+        self.control_database_url = os.getenv("CONTROL_DATABASE_URL", self.database_url).replace("postgres://", "postgresql+psycopg://", 1)
+        if self.control_database_url.startswith("postgresql://"):
+            self.control_database_url = self.control_database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        self.enforce_whatsapp_consent = os.getenv("ENFORCE_WHATSAPP_CONSENT", "true").lower() == "true"
+        self.enforce_subscription = os.getenv("ENFORCE_SUBSCRIPTION", "true").lower() == "true"
+        self.require_rls = os.getenv("REQUIRE_RLS", "true" if self.environment.lower() == "production" else "false").lower() == "true"
+        self.max_broadcast_recipients = int(os.getenv("MAX_BROADCAST_RECIPIENTS", "20"))
+        self.campaign_transport = os.getenv("CAMPAIGN_TRANSPORT", "celery")
+        self.enable_distributed_limits = os.getenv("ENABLE_DISTRIBUTED_LIMITS", "false").lower() == "true"
+        self.tenant_requests_per_minute = int(os.getenv("TENANT_REQUESTS_PER_MINUTE", "300"))
+
         self.jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))
         self.auto_create_tables: bool = os.getenv("AUTO_CREATE_TABLES", "true").lower() in {"1", "true", "yes"}

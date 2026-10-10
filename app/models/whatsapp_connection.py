@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.connection import Base
@@ -9,11 +9,12 @@ from .common import TimestampMixin
 
 class WhatsAppConnection(Base, TimestampMixin):
     __tablename__ = "whatsapp_connections"
-    __table_args__ = (UniqueConstraint("organization_id"), UniqueConstraint("phone_number_id"))
+    __table_args__ = (UniqueConstraint("phone_number_id"), Index("uq_whatsapp_default_sender", "organization_id", unique=True, postgresql_where=text("is_default")))
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     waba_id: Mapped[str] = mapped_column(String(80), nullable=False)
     phone_number_id: Mapped[str] = mapped_column(String(80), nullable=False)
     display_phone_number: Mapped[str | None] = mapped_column(String(80))

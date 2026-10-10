@@ -60,6 +60,9 @@ def status(user: User = Depends(require_organization), db: Session = Depends(get
 @router.post("/start")
 def start(user: User = Depends(require_owner), db: Session = Depends(get_db)):
     settings = require_signup_configuration()
+    if settings.enforce_subscription:
+        from app.services.billing import require_paid_subscription
+        require_paid_subscription(db, user)
     db.execute(delete(WhatsAppSignupAttempt).where(WhatsAppSignupAttempt.expires_at <= now()))
     attempt = WhatsAppSignupAttempt(id=secrets.token_urlsafe(32), tenant_id=tenant_id_for_user(user),
         organization_id=user.organization_id, user_id=user.id, expires_at=now() + timedelta(minutes=10), phase="started")
@@ -103,9 +106,17 @@ def select_phone(payload: SelectRequest, user: User = Depends(require_owner), db
     connection = db.scalar(select(WhatsAppConnection).where(
         WhatsAppConnection.organization_id == user.organization_id,
         WhatsAppConnection.tenant_id == tenant_id_for_user(user),
+        WhatsAppConnection.phone_number_id == payload.phone_number_id,
     ).with_for_update())
     if not connection:
-        connection = WhatsAppConnection(tenant_id=tenant_id_for_user(user), organization_id=user.organization_id)
+        from app.models import Organization
+        from app.services.billing import number_limit
+        db.scalar(select(Organization).where(Organization.id == user.organization_id).with_for_update())
+        current = db.scalars(select(WhatsAppConnection).where(WhatsAppConnection.tenant_id == user.tenant_id, WhatsAppConnection.organization_id == user.organization_id)).all()
+        maximum = number_limit(db, user) if get_settings().enforce_subscription else 1
+        if len(current) >= maximum:
+            raise HTTPException(409, "Your subscription's WhatsApp number limit has been reached")
+        connection = WhatsAppConnection(tenant_id=tenant_id_for_user(user), organization_id=user.organization_id, is_default=not current)
         db.add(connection)
     connection.waba_id = asset["waba_id"]
     connection.phone_number_id = asset["phone_number_id"]

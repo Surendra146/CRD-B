@@ -9,7 +9,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database.connection import SessionLocal, get_db
+from app.database.connection import SessionLocal, ControlSessionLocal, get_db
+from app.database.tenancy import bind_scope
 from app.models import Customer, DataUpload, DataUploadRow, User
 from app.redis.connection import get_progress_cache
 from app.schemas.upload import ColumnMappingRequest, SuggestMappingsRequest
@@ -371,7 +372,7 @@ def build_customer_payload(mapped: dict, user: User, upload_type: str) -> dict:
         "customer_created_date": customer_date,
         "demographics": mapped.get("demographics") or {"customerType": "Regular"},
         "lifecycle": mapped.get("lifecycle") or {"status": "new"},
-        "preferences": {"preferredChannel": "whatsapp", "marketingOptIn": True, "language": "en"},
+        "preferences": {"preferredChannel": "whatsapp", "marketingOptIn": False, "language": "en"},
         "source": {"type": "import", "importedAt": datetime.now(timezone.utc).isoformat()},
         "module_tags": [upload_type],
     }
@@ -587,7 +588,13 @@ def set_column_mapping(upload_id: int, payload: ColumnMappingRequest, user: User
 
 
 def validate_upload_job(upload_id: int) -> None:
+    with ControlSessionLocal() as discovery:
+        owner = discovery.get(DataUpload, upload_id)
+        if not owner:
+            return
+        tenant_id, organization_id = owner.tenant_id, owner.organization_id
     db = SessionLocal()
+    bind_scope(db, tenant_id, organization_id)
     try:
         upload = db.get(DataUpload, upload_id)
         if not upload:
@@ -729,7 +736,13 @@ def process_upload(
 
 
 def save_upload_job(upload_id: int, user_id: int) -> None:
+    with ControlSessionLocal() as discovery:
+        owner = discovery.get(DataUpload, upload_id)
+        if not owner:
+            return
+        tenant_id, organization_id = owner.tenant_id, owner.organization_id
     db = SessionLocal()
+    bind_scope(db, tenant_id, organization_id)
     try:
         upload = db.get(DataUpload, upload_id)
         user = db.get(User, user_id)

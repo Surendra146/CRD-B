@@ -12,6 +12,10 @@ os.environ.update({
     "ENABLE_REDIS_PROGRESS": "false",
     "ENABLE_SOCKET_PROGRESS": "false",
     "AUTO_CREATE_TABLES": "false",
+    "ENFORCE_WHATSAPP_CONSENT": "false",  # Legacy provider regression tests; enterprise tests explicitly enable.
+    "ENFORCE_SUBSCRIPTION": "false",
+    "REQUIRE_RLS": "false",
+    "CAMPAIGN_TRANSPORT": "database",
     "CORS_ORIGINS": "https://frontend.example.com",
 })
 
@@ -75,7 +79,7 @@ def db_session(session_factory):
 @pytest.fixture
 def client(session_factory, monkeypatch):
     from fastapi.testclient import TestClient
-    from app.database.connection import get_db
+    from app.database.connection import get_db, get_control_db
     from app.config.settings import get_settings
     import app.main as main
 
@@ -88,6 +92,12 @@ def client(session_factory, monkeypatch):
             yield session
 
     app.dependency_overrides[get_db] = override_db
+    from fastapi import Depends
+
+    def override_control_db(session=Depends(get_db)):
+        return session
+
+    app.dependency_overrides[get_control_db] = override_control_db
     try:
         with TestClient(app, base_url="https://testserver") as test_client:
             yield test_client

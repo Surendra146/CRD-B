@@ -17,6 +17,7 @@ from .tables import (
 )
 from .registry import create_tables
 from .whatsapp_connection import WhatsAppConnection, WhatsAppSignupAttempt
+from . import saas
 
 __all__ = (
     "WhatsAppConnection",

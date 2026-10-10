@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import get_settings
-from app.database.connection import SessionLocal, create_all
+from app.database.connection import SessionLocal, ControlSessionLocal, engine, control_engine, create_all
 from app.routers import register_routers
 from app.services.permissions import backfill_owner_modules
 from app.socket.connection import set_socket_manager
@@ -20,7 +20,13 @@ from app.middlewares.auth_rate_limit import AuthRateLimitMiddleware
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    if settings.auto_create_tables:
+    if settings.require_rls:
+        from app.database.tenancy import verify_runtime_role
+        if settings.control_database_url == settings.database_url:
+            raise RuntimeError("Production requires separate control and RLS runtime database credentials")
+        with engine.connect() as connection:
+            verify_runtime_role(connection)
+    if settings.auto_create_tables and not settings.require_rls:
         create_all()
     db = SessionLocal()
     try:
@@ -28,7 +34,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     finally:
         db.close()
     from app.services.whatsapp_scheduler import start_scheduler
-    stop, thread = start_scheduler(SessionLocal) if settings.environment.lower() != "test" else (None, None)
+    stop, thread = start_scheduler(ControlSessionLocal) if settings.environment.lower() != "test" and settings.campaign_transport == "database" else (None, None)
     try:
         yield
     finally:
@@ -87,6 +93,8 @@ def create_app():
     fastapi_app = FastAPI(title="HanuRam Tech API", lifespan=lifespan)
     fastapi_app.add_middleware(RequestLimitMiddleware)
     fastapi_app.add_middleware(AuthRateLimitMiddleware)
+    from app.middlewares.distributed_limits import DistributedRateLimitMiddleware
+    fastapi_app.add_middleware(DistributedRateLimitMiddleware)
 
     fastapi_app.add_middleware(
         CORSMiddleware,
@@ -99,6 +107,22 @@ def create_app():
     @fastapi_app.get("/health")
     def health() -> dict:
         return {"success": True, "status": "ok"}
+
+    @fastapi_app.get("/ready")
+    def ready():
+        from fastapi.responses import JSONResponse
+        from sqlalchemy import text
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            with control_engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            if settings.campaign_transport == "celery":
+                from redis import Redis
+                Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2).ping()
+            return {"success": True, "status": "ready"}
+        except Exception:
+            return JSONResponse({"success": False, "status": "unavailable"}, status_code=503)
 
     register_routers(fastapi_app)
     return create_socket_app(fastapi_app, settings)

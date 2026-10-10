@@ -48,15 +48,16 @@ def decrypt_token(value, tenant_id, organization_id):
         raise HTTPException(503, "The WhatsApp connection cannot be decrypted. Contact the service administrator") from None
 
 
-def get_connection(db, user):
-    return db.scalar(select(WhatsAppConnection).where(
-        WhatsAppConnection.tenant_id == tenant_id_for_user(user),
-        WhatsAppConnection.organization_id == user.organization_id,
-    ))
+def get_connection(db, user, phone_number_id=None):
+    statement = select(WhatsAppConnection).where(WhatsAppConnection.tenant_id == tenant_id_for_user(user),
+        WhatsAppConnection.organization_id == user.organization_id)
+    if phone_number_id:
+        statement = statement.where(WhatsAppConnection.phone_number_id == phone_number_id)
+    return db.scalar(statement.order_by(WhatsAppConnection.is_default.desc(), WhatsAppConnection.id.asc()).limit(1))
 
 
-def resolve_credentials(db, user):
-    connection = get_connection(db, user)
+def resolve_credentials(db, user, phone_number_id=None):
+    connection = get_connection(db, user, phone_number_id) if phone_number_id else get_connection(db, user)
     if not connection:
         raise HTTPException(409, "Connect your organization's WhatsApp Business account in Settings first")
     if connection.token_expires_at and connection.token_expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
@@ -65,6 +66,7 @@ def resolve_credentials(db, user):
         whatsapp_provider="meta_cloud",
         whatsapp_graph_version=get_settings().whatsapp_graph_version,
         whatsapp_phone_number_id=connection.phone_number_id,
+        whatsapp_waba_id=getattr(connection, "waba_id", None),
         whatsapp_access_token=decrypt_token(connection.encrypted_access_token, connection.tenant_id, connection.organization_id),
     )
 
@@ -74,7 +76,7 @@ def public_connection(connection):
         return {"connected": False}
     expired = bool(connection.token_expires_at and connection.token_expires_at <= datetime.now(timezone.utc).replace(tzinfo=None))
     return {
-        "connected": not expired, "expired": expired,
+        "connected": not expired, "expired": expired, "is_default": getattr(connection, "is_default", False),
         "waba_id": connection.waba_id, "phone_number_id": connection.phone_number_id,
         "display_phone_number": connection.display_phone_number,
         "verified_name": connection.verified_name,

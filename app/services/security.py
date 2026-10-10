@@ -8,8 +8,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
-from app.database.connection import get_db
-from app.models import Organization, User
+from app.database.connection import get_db, get_control_db
+from app.database.tenancy import bind_scope
+from app.models import Organization, Tenant, User
+from app.services.permissions import effective_modules, normalize_module, normalize_role
 
 bearer = HTTPBearer(auto_error=False)
 MAX_BCRYPT_PASSWORD_BYTES = 72
@@ -50,7 +52,8 @@ def decode_token(token: str) -> dict[str, Any] | None:
 def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_control_db),
+    tenant_db: Session = Depends(get_db),
 ) -> User:
     token = credentials.credentials if credentials else request.cookies.get("token")
     if not token:
@@ -66,6 +69,8 @@ def get_current_user(
 
     user_id = decoded.get("userId") or decoded.get("id")
     try:
+        if isinstance(user_id, bool) or not isinstance(user_id, (int, str)):
+            raise ValueError
         user = db.get(User, int(user_id)) if user_id else None
     except (TypeError, ValueError):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token subject") from None
@@ -76,14 +81,28 @@ def get_current_user(
         if not decoded.get("iat") or decoded["iat"] <= changed:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in again after changing your password")
 
-    token_tenant_id = decoded.get("tenantId") or decoded.get("tenant_id")
-    if token_tenant_id and user.tenant_id and int(token_tenant_id) != user.tenant_id:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token tenant does not match user")
-
     organization = db.get(Organization, user.organization_id) if user.organization_id else None
-    if organization and user.tenant_id and organization.tenant_id and user.tenant_id != organization.tenant_id:
+    effective_tenant_id = user.tenant_id or (organization.tenant_id if organization else None)
+    token_tenant_id = decoded.get("tenantId", decoded.get("tenant_id"))
+    try:
+        if isinstance(token_tenant_id, bool) or not isinstance(token_tenant_id, (int, str)):
+            raise ValueError
+        claimed_tenant_id = int(token_tenant_id)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token tenant") from None
+    if not effective_tenant_id or claimed_tenant_id != effective_tenant_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token tenant does not match user")
+    if organization and organization.tenant_id != effective_tenant_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tenant isolation check failed for this organization")
+    tenant = db.get(Tenant, effective_tenant_id)
+    if not tenant or not tenant.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This business workspace is suspended or unavailable")
+    if normalize_role(user.role) == "owner" and (not organization or organization.owner_id != user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Organization ownership check failed")
 
+    if not user.organization_id:
+        raise HTTPException(403, "No business organization associated with this user")
+    bind_scope(tenant_db, effective_tenant_id, user.organization_id)
     request.state.user = user
     request.state.organization = organization
     request.state.organization_id = organization.id if organization else None
@@ -125,16 +144,31 @@ def require_owner(user: User = Depends(require_organization)) -> User:
     return user
 
 
-def require_whatsapp_access(user: User = Depends(require_organization)) -> User:
-    if user.role != "owner" and "whatsapp" not in (user.allowed_modules or []):
+def require_tenant_admin(user: User = Depends(require_organization)) -> User:
+    if normalize_role(user.role) == "owner":
+        return require_owner(user)
+    if normalize_role(user.role) != "admin":
+        raise HTTPException(403, "Tenant administrator permission is required")
+    return user
+
+
+def enforce_read_only(user, request=None):
+    if normalize_role(user.role) == "viewer" and (request is None or request.method not in {"GET", "HEAD", "OPTIONS"}):
+        raise HTTPException(403, "Viewer accounts have read-only access")
+
+
+def require_whatsapp_access(user: User = Depends(require_organization), request: Request = None) -> User:
+    if "whatsapp" not in effective_modules(user):
         raise HTTPException(403, "WhatsApp permission is required")
+    enforce_read_only(user, request)
     return user
 
 
 def require_module(*modules):
-    def dependency(user: User = Depends(require_organization)):
-        if user.role != "owner" and not set(modules).intersection(user.allowed_modules or []):
+    def dependency(user: User = Depends(require_organization), request: Request = None):
+        if not {normalize_module(module) for module in modules}.intersection(effective_modules(user)):
             raise HTTPException(403, "You do not have permission to access this module")
+        enforce_read_only(user, request)
         return user
     return dependency
 
@@ -147,11 +181,11 @@ def ensure_tenant_access(record: T | None, user: User, resource_name: str = "Res
         raise HTTPException(404, f"{resource_name} not found")
 
     tenant_id = getattr(record, "tenant_id", None)
-    if tenant_id is not None and tenant_id != tenant_id_for_user(user):
+    if hasattr(record, "tenant_id") and tenant_id != tenant_id_for_user(user):
         raise HTTPException(404, f"{resource_name} not found")
 
     organization_id = getattr(record, "organization_id", None)
-    if organization_id is not None and organization_id != user.organization_id:
+    if hasattr(record, "organization_id") and organization_id != user.organization_id:
         raise HTTPException(404, f"{resource_name} not found")
 
     return record

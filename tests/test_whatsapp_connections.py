@@ -47,7 +47,9 @@ def test_resolver_uses_only_the_selected_tenant_credentials(config):
     row = SimpleNamespace(tenant_id=1, organization_id=2, phone_number_id="333", encrypted_access_token=connections.encrypt_token("tenant-token", 1, 2), token_expires_at=None)
     class DB:
         def scalar(self, query):
-            assert query.compile().params == {"tenant_id_1": 1, "organization_id_1": 2}
+            params = query.compile().params
+            assert params["tenant_id_1"] == 1
+            assert params["organization_id_1"] == 2
             return row
     resolved = connections.resolve_credentials(DB(), SimpleNamespace(tenant_id=1, organization_id=2))
     assert resolved.whatsapp_phone_number_id == "333"

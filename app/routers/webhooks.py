@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
-from app.database.connection import get_db
+from app.database.connection import get_control_db
 from app.models import WhatsAppBulkJob, WhatsAppConnection
 from app.services.meta_whatsapp import apply_status, update_stats
 
@@ -35,7 +35,7 @@ def verify_whatsapp(request: Request):
 
 
 @router.post("/whatsapp")
-async def receive_whatsapp(request: Request, db: Session = Depends(get_db)):
+async def receive_whatsapp(request: Request, db: Session = Depends(get_control_db)):
     settings = get_settings()
     if not settings.meta_app_secret:
         raise HTTPException(503, "META_APP_SECRET is required to verify WhatsApp webhooks")
@@ -67,12 +67,27 @@ async def receive_whatsapp(request: Request, db: Session = Depends(get_db)):
             ))
             if not connection:
                 continue
+            if hasattr(db, "execute"):
+                from app.services.consent import process_inbound
+                from app.models.saas import MessageRecord
+                for message in value.get("messages", []):
+                    if not isinstance(message, dict):
+                        raise HTTPException(400, "Invalid inbound WhatsApp message")
+                    process_inbound(db, connection, message)
             for status in value.get("statuses", []):
                 if not isinstance(status, dict):
                     raise HTTPException(400, "Invalid webhook status")
                 message_id = status.get("id")
                 if not message_id:
                     continue
+                if hasattr(db, "execute"):
+                    record = db.scalar(select(MessageRecord).where(MessageRecord.provider_message_id == message_id,
+                        MessageRecord.tenant_id == connection.tenant_id, MessageRecord.organization_id == connection.organization_id,
+                        MessageRecord.sender_phone_id == connection.phone_number_id).with_for_update())
+                    if record:
+                        current = apply_status({"status": record.status, "status_timestamp": record.status_timestamp}, status)
+                        record.status = current["status"]
+                        record.status_timestamp = current.get("status_timestamp", record.status_timestamp)
                 jobs = db.scalars(select(WhatsAppBulkJob).where(
                     WhatsAppBulkJob.recipients_summary.contains([{"message_id": message_id}]),
                     WhatsAppBulkJob.tenant_id == connection.tenant_id,

@@ -39,6 +39,10 @@ ROUTERS = (
 
 
 def register_routers(app: FastAPI) -> None:
+    from app.routers import saas, platform, managed_whatsapp
+    app.include_router(managed_whatsapp.router, prefix="/api/saas", tags=["managed-whatsapp"])
+    app.include_router(saas.router, prefix="/api/saas", tags=["saas"])
+    app.include_router(platform.router, prefix="/api/platform", tags=["platform"])
     for router, prefix, tags in ROUTERS:
         permissions = {
             "customers": ("customers",), "campaigns": ("campaigns",),

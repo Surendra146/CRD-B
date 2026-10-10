@@ -1,4 +1,42 @@
+# Populate all secrets manually in hanuram-enterprise before deployment.
+# Render does not support sync:false in environment groups.
+# Review against the EXISTING Render resources before syncing this blueprint.
+# Supply the existing JWT/encryption keys; rotating them here would break sessions/tokens.
+envVarGroups:
+  - name: hanuram-enterprise
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+      - key: ENVIRONMENT
+        value: production
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRES_MINUTES
+        value: '1440'
+      - key: AUTO_CREATE_TABLES
+        value: 'false'
+      - key: REQUIRE_RLS
+        value: 'true'
+      - key: ENFORCE_SUBSCRIPTION
+        value: 'true'
+      - key: ENFORCE_WHATSAPP_CONSENT
+        value: 'true'
+      - key: CAMPAIGN_TRANSPORT
+        value: celery
+      - key: MAX_BROADCAST_RECIPIENTS
+        value: '1000'
+      - key: ENABLE_DISTRIBUTED_LIMITS
+        value: 'true'
+      - key: ENABLE_REDIS_PROGRESS
+        value: 'true'
+      - key: ENABLE_SOCKET_PROGRESS
+        value: 'false'
 services:
+  - type: keyvalue
+    name: hanuram-redis
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
   - type: web
     name: cbd-backend
     runtime: python
@@ -6,45 +44,43 @@ services:
     autoDeployTrigger: checksPass
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
+    healthCheckPath: /ready
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.13.2
-      - key: ENVIRONMENT
-        value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: cbd-postgres
+      - fromGroup: hanuram-enterprise
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: hanuram-redis
           property: connectionString
-      - key: TEST_DATABASE_URL
-        fromDatabase:
-          name: cbd-postgres
+  - type: worker
+    name: hanuram-campaign-worker
+    runtime: python
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=2
+    envVars:
+      - fromGroup: hanuram-enterprise
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: hanuram-redis
           property: connectionString
-      - key: JWT_SECRET
-        generateValue: true
-      - key: JWT_ALGORITHM
-        value: HS256
-      - key: JWT_EXPIRES_MINUTES
-        value: "1440"
-      - key: AUTO_CREATE_TABLES
-        value: "true"
-      - key: ENABLE_REDIS_PROGRESS
-        value: "false"
-      - key: ENABLE_SOCKET_PROGRESS
-        value: "false"
-      - key: WHATSAPP_VERIFY_TOKEN
-        sync: false
-      - key: META_APP_SECRET
-        sync: false
-      - key: META_APP_ID
-        sync: false
-      - key: WHATSAPP_SIGNUP_CONFIG_ID
-        sync: false
-      - key: WHATSAPP_TOKEN_ENCRYPTION_KEY
-        generateValue: true
-      - key: CORS_ORIGINS
-        sync: false
-
+  - type: worker
+    name: hanuram-campaign-beat
+    runtime: python
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A app.tasks.celery_app beat --loglevel=INFO
+    envVars:
+      - fromGroup: hanuram-enterprise
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: hanuram-redis
+          property: connectionString
+# Retain the existing database declaration; never replace its name or recreate it.
 databases:
   - name: cbd-postgres
     databaseName: cm_db

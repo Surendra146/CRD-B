@@ -51,6 +51,8 @@ def update_template(template_id: int, payload: TemplateUpdateRequest, user: User
     payload_data = payload.to_payload()
     template = db.get(WhatsAppTemplate, template_id)
     ensure_tenant_access(template, user, "Template")
+    if (template.targeting or {}).get("meta_id"):
+        raise HTTPException(409, "Synced WhatsApp templates must be updated through Meta and synchronized")
     apply_payload(template, payload_data, {"whatsappTemplateName": "whatsapp_template_name", "isActive": "is_active"})
     db.commit()
     return {"success": True, "data": model_to_dict(template)}

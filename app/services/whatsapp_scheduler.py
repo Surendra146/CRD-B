@@ -44,7 +44,7 @@ def dispatch_due_job(session_factory):
             if not user or user.tenant_id != job.tenant_id or user.organization_id != job.organization_id or not user.is_active:
                 raise HTTPException(403, "Campaign creator no longer has access to this organization")
             require_whatsapp_access(user)
-            connection = resolve_credentials(db, user)
+            connection = resolve_credentials(db, user, job.audience_payload.get("sender_phone_number_id"))
             if connection.whatsapp_phone_number_id != job.audience_payload.get("sender_phone_number_id"):
                 raise HTTPException(409, "The campaign's WhatsApp sender has changed; create a new campaign")
             dispatch_bulk_job(db, job, connection)

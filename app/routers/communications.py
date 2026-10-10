@@ -20,6 +20,9 @@ from app.services.whatsapp_scheduler import parse_schedule
 from app.services.meta_whatsapp import build_message, require_configuration, send_message, update_stats
 from app.services.whatsapp_connections import get_connection, resolve_credentials, public_connection
 from app.utils.helpers import model_to_dict
+from app.config.settings import get_settings
+from app.services.consent import assert_send_allowed, record_message
+from app.services.billing import require_paid_subscription
 
 
 def communication_payload(payload: CommunicationRequest) -> dict:
@@ -28,12 +31,20 @@ def communication_payload(payload: CommunicationRequest) -> dict:
 
 def send_whatsapp(payload: CommunicationRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = communication_payload(payload)
+    if get_settings().enforce_subscription:
+        require_paid_subscription(db, user)
+    credentials = resolve_credentials(db, user, payload_data.get("sender_phone_number_id")) if payload_data.get("sender_phone_number_id") else resolve_credentials(db, user)
+    if get_settings().enforce_whatsapp_consent:
+        assert_send_allowed(db, user.tenant_id, user.organization_id, payload_data.get("phone") or payload_data.get("to"), payload_data.get("template"), credentials.whatsapp_waba_id)
     result = send_message(
         payload_data.get("phone") or payload_data.get("to"), payload_data.get("message") or "",
         template=payload_data.get("template"), buttons=payload_data.get("buttons"),
         media_files=payload_data.get("media_files"),
-        connection=resolve_credentials(db, user),
+        connection=credentials,
     )
+    if hasattr(db, "execute"):
+        record_message(db, user.tenant_id, user.organization_id, credentials.whatsapp_phone_number_id, payload_data.get("phone") or payload_data.get("to"), result)
+        db.commit()
     return {"success": True, "message": "Meta accepted the WhatsApp message; delivery is not yet confirmed", "data": result}
 
 
@@ -80,7 +91,9 @@ def send_bulk_whatsapp(
     scheduled_at_raw = req.get("scheduled_at") or req.get("scheduledAt")
 
     scheduled_at = parse_schedule(scheduled_at_raw)
-    connection = resolve_credentials(db, user)
+    if get_settings().enforce_subscription:
+        require_paid_subscription(db, user)
+    connection = resolve_credentials(db, user, req.get("sender_phone_number_id")) if req.get("sender_phone_number_id") else resolve_credentials(db, user)
     require_configuration(connection)
 
     # Resolve target recipients
@@ -140,8 +153,8 @@ def send_bulk_whatsapp(
 
     if not recipients_data:
         raise HTTPException(400, "No reachable recipients found for the selected audience")
-    if len(recipients_data) > 20:
-        raise HTTPException(400, "Send up to 20 recipients per broadcast")
+    if len(recipients_data) > get_settings().max_broadcast_recipients:
+        raise HTTPException(400, f"Send up to {get_settings().max_broadcast_recipients} recipients per broadcast")
 
     # Generate personalized messages for each recipient
     recipients_summary = []
@@ -156,6 +169,9 @@ def send_bulk_whatsapp(
             "delivered_at": None,
         })
 
+    asynchronous = get_settings().campaign_transport == "celery"
+    if asynchronous and not scheduled_at:
+        scheduled_at = datetime.now(timezone.utc).replace(tzinfo=None)
     job_status = "scheduled" if scheduled_at else "in_progress"
     total_count = len(recipients_summary)
     stats = {
@@ -169,7 +185,7 @@ def send_bulk_whatsapp(
         tenant_id=t_id,
         organization_id=org_id,
         tenant_code=user.tenant_code,
-        title=req.get("title") or f"Bulk Broadcast {datetime.utcnow().strftime('%b %d, %H:%M')}",
+        title=req.get("title") or f"Bulk Broadcast {datetime.now(timezone.utc).strftime('%b %d, %H:%M')}",
         audience_type=audience_type,
         audience_payload={**audience, "sender_phone_number_id": connection.whatsapp_phone_number_id, "meta_template": req.get("template")},
         message_template=message_text,
@@ -179,10 +195,14 @@ def send_bulk_whatsapp(
         scheduled_at=scheduled_at,
         status=job_status,
         stats=stats,
-        recipients_summary=recipients_summary[:500],  # Cap log at 500 for compact storage
+        recipients_summary=recipients_summary,
         created_by=user.id,
     )
     db.add(bulk_job)
+    if asynchronous:
+        from app.models.saas import CampaignOutbox
+        db.flush()
+        db.add(CampaignOutbox(tenant_id=t_id, organization_id=org_id, bulk_job_id=bulk_job.id))
     db.commit()
     db.refresh(bulk_job)
 
@@ -200,6 +220,14 @@ def dispatch_bulk_job(db, bulk_job, connection):
             continue
         if index and batch_delay:
             time.sleep(batch_delay)
+        if bulk_job.status in {"paused", "cancelled"}:
+            break
+        db.refresh(bulk_job, with_for_update=True)
+        current = list(bulk_job.recipients_summary)
+        if bulk_job.status in {"paused", "cancelled"}:
+            break
+        if current[index].get("status") != "queued":
+            continue
         # Persist uncertainty before contacting Meta; never automatically retry a
         # recipient whose acceptance was interrupted by a process restart.
         db.refresh(bulk_job, with_for_update=True)
@@ -208,9 +236,16 @@ def dispatch_bulk_job(db, bulk_job, connection):
         bulk_job.recipients_summary = current
         db.commit()
         try:
+            assert_send_allowed(db, bulk_job.tenant_id, bulk_job.organization_id, recipient["phone"], bulk_job.audience_payload.get("meta_template"), getattr(connection, "whatsapp_waba_id", None))
+            if get_settings().enforce_subscription:
+                from app.models import User
+                creator = db.get(User, bulk_job.created_by)
+                require_paid_subscription(db, creator)
             result = send_message(recipient["phone"], recipient["personalized_message"],
                                   template=bulk_job.audience_payload.get("meta_template"), buttons=bulk_job.buttons, media_files=bulk_job.media_files, connection=connection)
             recipient.update(result)
+            if hasattr(db, "execute"):
+                record_message(db, bulk_job.tenant_id, bulk_job.organization_id, connection.whatsapp_phone_number_id, recipient["phone"], result, bulk_job.id)
         except HTTPException as error:
             uncertain = isinstance(error.detail, str) and any(
                 phrase in error.detail.lower() for phrase in ("unconfirmed", "could not confirm")
@@ -295,11 +330,11 @@ def bulk_job_action(
     job = ensure_tenant_access(db.scalar(select(WhatsAppBulkJob).where(WhatsAppBulkJob.id == job_id).with_for_update()), user, "Bulk Job")
 
     action = payload.get("action")
-    if action in {"resume", "run_now"} and job.status in {"scheduled", "paused"}:
+    if action in {"resume", "run_now"} and job.status in {"scheduled", "paused", "in_progress"}:
         job.status = "scheduled"
         if action == "run_now":
             job.scheduled_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    elif action in {"cancel", "pause"} and job.status in {"scheduled", "paused"}:
+    elif action in {"cancel", "pause"} and job.status in {"scheduled", "paused", "in_progress"}:
         job.status = "cancelled" if action == "cancel" else "paused"
     else:
         raise HTTPException(400, f"Unsupported action: {action}")

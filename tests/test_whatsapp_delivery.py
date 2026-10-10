@@ -113,6 +113,8 @@ def test_signed_webhook_is_registered_and_updates_actual_delivery(settings):
     app = FastAPI()
     app.include_router(webhooks.router, prefix="/api/webhooks")
     app.dependency_overrides[get_db] = lambda: DB()
+    from app.database.connection import get_control_db
+    app.dependency_overrides[get_control_db] = lambda: DB()
     body = json.dumps({"object": "whatsapp_business_account", "entry": [{"id": "999", "changes": [{"value": {"metadata": {"phone_number_id": "123"}, "statuses": [{"id": "wamid.test", "status": "failed", "timestamp": "123", "errors": [{"code": 131047, "message": "Outside service window"}]}]}}]}]}).encode()
     signature = "sha256=" + hmac.new(settings.meta_app_secret.encode(), body, hashlib.sha256).hexdigest()
     with TestClient(app) as client:
