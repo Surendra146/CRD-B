@@ -19,6 +19,14 @@ def publish_due():
     from app.models import WhatsAppBulkJob
     from app.models.saas import CampaignOutbox
     with ControlSessionLocal() as db:
+        from app.database.authorization import enabled, claim_campaign
+        if enabled():
+            for _ in range(100):
+                claim = claim_campaign(db)
+                if not claim:
+                    break
+                deliver_job.delay(claim['job_id'], claim['tenant_id'], claim['organization_id'], claim)
+            return
         rows = db.scalars(select(CampaignOutbox).join(WhatsAppBulkJob, WhatsAppBulkJob.id == CampaignOutbox.bulk_job_id).where(
             WhatsAppBulkJob.status.in_(["scheduled", "in_progress"]), WhatsAppBulkJob.scheduled_at <= datetime.now(UTC).replace(tzinfo=None),
             CampaignOutbox.status.in_(["pending", "published"]),
@@ -33,7 +41,7 @@ def publish_due():
 
 
 @celery_app.task(name="hanuram.deliver_job", acks_late=True, reject_on_worker_lost=True)
-def deliver_job(job_id, tenant_id, organization_id):
+def deliver_job(job_id, tenant_id, organization_id, claim=None):
     from app.database.connection import SessionLocal
     from app.models import User, Tenant, WhatsAppBulkJob
     from app.models.saas import CampaignOutbox
@@ -41,7 +49,19 @@ def deliver_job(job_id, tenant_id, organization_id):
     from app.services.security import require_whatsapp_access
     from app.services.whatsapp_connections import resolve_credentials
     from app.routers.communications import dispatch_bulk_job
+    from app.database.authorization import enabled, claim_campaign, campaign_scope
+    if enabled():
+        if claim is None:
+            from app.database.connection import ControlSessionLocal
+            with ControlSessionLocal() as discovery:
+                claim = claim_campaign(discovery, job_id)
+        if not claim:
+            return
+        if (claim['job_id'],claim['tenant_id'],claim['organization_id']) != (job_id,tenant_id,organization_id):
+            return
     with SessionLocal() as db:
+        if enabled():
+            campaign_scope(db, claim)
         bind_scope(db, tenant_id, organization_id)
         job = db.scalar(select(WhatsAppBulkJob).where(WhatsAppBulkJob.id == job_id,
             WhatsAppBulkJob.tenant_id == tenant_id, WhatsAppBulkJob.organization_id == organization_id).with_for_update())
@@ -61,7 +81,7 @@ def deliver_job(job_id, tenant_id, organization_id):
                 job.status = "paused"
                 db.commit()
                 return
-            require_whatsapp_access(user)
+            require_whatsapp_access(request=None, user=user)
             sender = job.audience_payload.get("sender_phone_number_id")
             credentials = resolve_credentials(db, user, sender)
             job.status = "in_progress"

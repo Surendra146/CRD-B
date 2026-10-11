@@ -16,9 +16,10 @@ engine = create_engine(
     pool_size=10,
     max_overflow=20,
     future=True,
+    hide_parameters=True,
 )
 
-control_engine = create_engine(get_settings().control_database_url, pool_pre_ping=True, pool_size=5, max_overflow=10)
+control_engine = create_engine(get_settings().control_database_url, pool_pre_ping=True, pool_size=5, max_overflow=10, hide_parameters=True)
 ControlSessionLocal = sessionmaker(bind=control_engine, autoflush=False, autocommit=False, future=True)
 
 

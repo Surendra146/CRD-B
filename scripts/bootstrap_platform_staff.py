@@ -1,42 +1,37 @@
-"""Operator-only staff membership management; dry run unless --apply is supplied."""
+"""Offline staff provisioning. Separate operator URL; dry run unless --apply."""
 import argparse
-import sys
-from pathlib import Path
+import json
+import os
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dotenv import load_dotenv
-load_dotenv()
-from sqlalchemy import select
-from app.database.connection import ControlSessionLocal
-from app.models import User
-from app.models.saas import PlatformStaff
-from app.services.audit import audit
-
-SCOPES = {'tenants.read', 'tenants.manage', 'plans.manage', 'subscriptions.read', 'subscriptions.manage', 'onboarding.manage', 'usage.manage', 'audit.read'}
+SCOPES = {'tenants.read', 'tenants.manage', 'plans.manage', 'subscriptions.read',
+          'subscriptions.manage', 'onboarding.manage', 'usage.manage', 'audit.read'}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--email', required=True)
-    parser.add_argument('--permissions', required=True, help='Comma-separated explicit permissions')
+    parser.add_argument('--permissions', required=True)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    permissions = sorted(set(args.permissions.split(',')))
+    permissions = sorted(set(part.strip() for part in args.permissions.split(',')))
     if not permissions or not set(permissions) <= SCOPES:
         parser.error('Unknown staff permission')
-    with ControlSessionLocal() as db:
-        user = db.scalar(select(User).where(User.email == args.email.strip().lower()))
-        if not user or not user.is_active:
-            raise SystemExit('An existing active user is required')
-        print(f'User {user.id}: grant {", ".join(permissions)}; apply={args.apply}')
-        if args.apply:
-            row = db.get(PlatformStaff, user.id)
-            if not row:
-                row = PlatformStaff(user_id=user.id)
-                db.add(row)
-            row.is_active, row.permissions = True, permissions
-            audit(db, user, 'platform.staff.permissions.updated', str(user.id), {'permissions': permissions})
-            db.commit()
+    raw = os.environ.get('OPERATOR_DATABASE_URL')
+    if not raw:
+        parser.error('Set OPERATOR_DATABASE_URL in this process; runtime/control credentials are never used')
+    url = make_url(raw.replace('postgres://', 'postgresql://', 1)).set(drivername='postgresql+psycopg')
+    engine = create_engine(url, hide_parameters=True, echo=False)
+    try:
+        with engine.begin() as connection:
+            result = connection.scalar(text('SELECT hanuram_auth.operator_staff(:email,CAST(:permissions AS jsonb),:apply)'),
+                {'email': args.email.strip().lower(), 'permissions': json.dumps(permissions), 'apply': args.apply})
+            print(json.dumps(result))
+    except Exception:
+        raise SystemExit('Operator staff provisioning failed; no credentials printed. Review operator privileges and active user.') from None
+    finally:
+        engine.dispose()
 
 
 if __name__ == '__main__':

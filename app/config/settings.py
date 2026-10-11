@@ -43,6 +43,10 @@ class Settings:
         self.enforce_whatsapp_consent = os.getenv("ENFORCE_WHATSAPP_CONSENT", "true").lower() == "true"
         self.enforce_subscription = os.getenv("ENFORCE_SUBSCRIPTION", "true").lower() == "true"
         self.require_rls = os.getenv("REQUIRE_RLS", "true" if self.environment.lower() == "production" else "false").lower() == "true"
+        self.database_authorization_keys = {
+            purpose: os.getenv("DATABASE_AUTH_" + purpose.upper() + "_KEY", "")
+            for purpose in ("identity", "staff", "jobs")
+        }
         self.max_broadcast_recipients = int(os.getenv("MAX_BROADCAST_RECIPIENTS", "20"))
         self.campaign_transport = os.getenv("CAMPAIGN_TRANSPORT", "celery")
         self.enable_distributed_limits = os.getenv("ENABLE_DISTRIBUTED_LIMITS", "false").lower() == "true"

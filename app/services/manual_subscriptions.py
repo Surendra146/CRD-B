@@ -18,15 +18,18 @@ def public_subscription(row):
 
 
 def operate(db, actor, tenant_id, organization_id, operation, payload):
+    request_id = str(payload.request_id)
+    values = payload.model_dump(mode="json")
+    fingerprint = hashlib.sha256(json.dumps({"operation": operation, "payload": values}, sort_keys=True).encode()).hexdigest()
+    from app.database.authorization import staff_scope
+    staff_scope(db, actor, "subscriptions.manage", target_tenant=tenant_id, target_org=organization_id,
+                operation=operation, operation_payload=values, request_id=request_id, fingerprint=fingerprint,
+                reason=payload.reason, action=f"platform.subscription.{operation}", resource=f"organization:{organization_id}")
     # Lock even when no subscription exists to serialize first assignments/retries.
     organization = db.scalar(select(Organization).where(Organization.id == organization_id,
         Organization.tenant_id == tenant_id).with_for_update())
     if not organization:
         raise HTTPException(404, "Business organization not found")
-    request_id = str(payload.request_id)
-    values = payload.model_dump(mode="json")
-    fingerprint = hashlib.sha256(json.dumps({"operation": operation, "payload": values},
-        sort_keys=True).encode()).hexdigest()
     previous = db.scalar(select(AuditEvent).where(
         AuditEvent.resource_id == f"organization:{organization_id}",
         AuditEvent.action.like("platform.subscription.%"),

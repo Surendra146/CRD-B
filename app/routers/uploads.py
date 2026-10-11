@@ -9,7 +9,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database.connection import SessionLocal, ControlSessionLocal, get_db
+from app.database.connection import SessionLocal, get_db
+from app.database.authorization import upload_scope
 from app.database.tenancy import bind_scope
 from app.models import Customer, DataUpload, DataUploadRow, User
 from app.redis.connection import get_progress_cache
@@ -587,15 +588,11 @@ def set_column_mapping(upload_id: int, payload: ColumnMappingRequest, user: User
     return {"success": True, "data": upload_response(upload, db)}
 
 
-def validate_upload_job(upload_id: int) -> None:
-    with ControlSessionLocal() as discovery:
-        owner = discovery.get(DataUpload, upload_id)
-        if not owner:
-            return
-        tenant_id, organization_id = owner.tenant_id, owner.organization_id
+def validate_upload_job(upload_id: int, user_id: int, tenant_id: int, organization_id: int) -> None:
     db = SessionLocal()
-    bind_scope(db, tenant_id, organization_id)
     try:
+        upload_scope(db, upload_id, user_id, tenant_id, organization_id)
+        bind_scope(db, tenant_id, organization_id)
         upload = db.get(DataUpload, upload_id)
         if not upload:
             return
@@ -731,19 +728,15 @@ def process_upload(
     db.commit()
     db.refresh(upload)
     publish_upload_progress(upload)
-    background_tasks.add_task(validate_upload_job, upload.id)
+    background_tasks.add_task(validate_upload_job, upload.id, upload.uploaded_by, upload.tenant_id, upload.organization_id)
     return {"success": True, "data": upload_response(upload, db)}
 
 
-def save_upload_job(upload_id: int, user_id: int) -> None:
-    with ControlSessionLocal() as discovery:
-        owner = discovery.get(DataUpload, upload_id)
-        if not owner:
-            return
-        tenant_id, organization_id = owner.tenant_id, owner.organization_id
+def save_upload_job(upload_id: int, user_id: int, tenant_id: int, organization_id: int) -> None:
     db = SessionLocal()
-    bind_scope(db, tenant_id, organization_id)
     try:
+        upload_scope(db, upload_id, user_id, tenant_id, organization_id)
+        bind_scope(db, tenant_id, organization_id)
         upload = db.get(DataUpload, upload_id)
         user = db.get(User, user_id)
         if not upload or not user:
@@ -853,7 +846,7 @@ def confirm_save_upload(
     db.commit()
     db.refresh(upload)
     publish_upload_progress(upload)
-    background_tasks.add_task(save_upload_job, upload.id, user.id)
+    background_tasks.add_task(save_upload_job, upload.id, user.id, upload.tenant_id, upload.organization_id)
     return {"success": True, "data": upload_response(upload, db)}
 
 

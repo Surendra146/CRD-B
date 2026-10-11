@@ -36,10 +36,10 @@ def test_owner_role_alone_cannot_impersonate_owner():
 
 def test_sending_requires_whatsapp_permission():
     with pytest.raises(HTTPException) as error:
-        require_whatsapp_access(SimpleNamespace(organization_id=2, role="member", allowed_modules=[]))
+        require_whatsapp_access(user=SimpleNamespace(organization_id=2, role="member", allowed_modules=[]), request=None)
     assert error.value.status_code == 403
     owner = SimpleNamespace(organization_id=2, role="owner")
-    assert require_whatsapp_access(owner) is owner
+    assert require_whatsapp_access(user=owner, request=None) is owner
 
 
 

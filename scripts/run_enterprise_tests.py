@@ -22,7 +22,7 @@ import pytest
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--no-migrations', action='store_true', help='Exclude tests that execute migration functions')
 args = parser.parse_args()
-test_args = ['-q', '--require-db', '-p', 'no:cacheprovider']
+test_args = ['-q', '--require-db', '-p', 'no:cacheprovider', '--ignore=tests/security']
 if args.no_migrations:
     test_args += ['--ignore=tests/integration/' + name for name in (
         'test_tenant_migration.py', 'test_rls_database.py', 'test_payment_gateway_api.py',

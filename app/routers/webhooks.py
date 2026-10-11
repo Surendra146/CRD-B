@@ -2,6 +2,7 @@ import secrets
 import hashlib
 import hmac
 import json
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
@@ -9,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
-from app.database.connection import get_control_db
+from app.database.connection import get_control_db, SessionLocal
+from app.database.authorization import enabled, lookup_webhook, webhook_scope
 from app.models import WhatsAppBulkJob, WhatsAppConnection
 from app.services.meta_whatsapp import apply_status, update_stats
 
@@ -59,46 +61,58 @@ async def receive_whatsapp(request: Request, db: Session = Depends(get_control_d
             if not isinstance(change, dict):
                 raise HTTPException(400, "Invalid webhook change")
             value = change.get("value") or {}
-            if not isinstance(value, dict) or not isinstance(value.get("metadata", {}), dict) or not isinstance(value.get("statuses", []), list):
+            if not isinstance(value, dict) or not isinstance(value.get("metadata", {}), dict) or not isinstance(value.get("statuses", []), list) or not isinstance(value.get("messages", []), list):
                 raise HTTPException(400, "Invalid webhook value")
+            if enabled():
+                resolved = lookup_webhook(db, str(value.get('metadata', {}).get('phone_number_id', '')), str(entry.get('id', '')))
+                if resolved:
+                    # Credentials are not returned by the lookup function. Each
+                    # connection gets its own transaction and scoped runtime session.
+                    with SessionLocal() as tenant_db:
+                        webhook_scope(tenant_db, resolved)
+                        apply_change(tenant_db, SimpleNamespace(**resolved), value)
+                        tenant_db.commit()
+                continue
             connection = db.scalar(select(WhatsAppConnection).where(
                 WhatsAppConnection.phone_number_id == str(value.get("metadata", {}).get("phone_number_id", "")),
                 WhatsAppConnection.waba_id == str(entry.get("id", "")),
             ))
             if not connection:
                 continue
-            if hasattr(db, "execute"):
-                from app.services.consent import process_inbound
-                from app.models.saas import MessageRecord
-                for message in value.get("messages", []):
-                    if not isinstance(message, dict):
-                        raise HTTPException(400, "Invalid inbound WhatsApp message")
-                    process_inbound(db, connection, message)
-            for status in value.get("statuses", []):
-                if not isinstance(status, dict):
-                    raise HTTPException(400, "Invalid webhook status")
-                message_id = status.get("id")
-                if not message_id:
-                    continue
-                if hasattr(db, "execute"):
-                    record = db.scalar(select(MessageRecord).where(MessageRecord.provider_message_id == message_id,
-                        MessageRecord.tenant_id == connection.tenant_id, MessageRecord.organization_id == connection.organization_id,
-                        MessageRecord.sender_phone_id == connection.phone_number_id).with_for_update())
-                    if record:
-                        current = apply_status({"status": record.status, "status_timestamp": record.status_timestamp}, status)
-                        record.status = current["status"]
-                        record.status_timestamp = current.get("status_timestamp", record.status_timestamp)
-                jobs = db.scalars(select(WhatsAppBulkJob).where(
-                    WhatsAppBulkJob.recipients_summary.contains([{"message_id": message_id}]),
-                    WhatsAppBulkJob.tenant_id == connection.tenant_id,
-                    WhatsAppBulkJob.organization_id == connection.organization_id,
-                    WhatsAppBulkJob.audience_payload["sender_phone_number_id"].as_string() == connection.phone_number_id,
-                ).with_for_update()).all()
-                for job in jobs:
-                    job.recipients_summary = [
-                        apply_status(rec, status) if rec.get("message_id") == message_id else rec
-                        for rec in job.recipients_summary
-                    ]
-                    update_stats(job)
+            apply_change(db, connection, value)
     db.commit()
     return {"success": True}
+
+
+def apply_change(db, connection, value):
+    from app.services.consent import process_inbound
+    from app.models.saas import MessageRecord
+    for message in value.get('messages', []):
+        if not isinstance(message, dict):
+            raise HTTPException(400, 'Invalid inbound WhatsApp message')
+        if hasattr(db, 'execute'):
+            process_inbound(db, connection, message)
+    for status in value.get('statuses', []):
+        if not isinstance(status, dict):
+            raise HTTPException(400, 'Invalid webhook status')
+        message_id = status.get('id')
+        if not message_id:
+            continue
+        if hasattr(db, 'execute'):
+            record = db.scalar(select(MessageRecord).where(MessageRecord.provider_message_id == message_id,
+                MessageRecord.tenant_id == connection.tenant_id, MessageRecord.organization_id == connection.organization_id,
+                MessageRecord.sender_phone_id == connection.phone_number_id).with_for_update())
+            if record:
+                current = apply_status({'status': record.status, 'status_timestamp': record.status_timestamp}, status)
+                record.status = current['status']
+                record.status_timestamp = current.get('status_timestamp', record.status_timestamp)
+        jobs = db.scalars(select(WhatsAppBulkJob).where(
+            WhatsAppBulkJob.recipients_summary.contains([{'message_id': message_id}]),
+            WhatsAppBulkJob.tenant_id == connection.tenant_id,
+            WhatsAppBulkJob.organization_id == connection.organization_id,
+            WhatsAppBulkJob.audience_payload['sender_phone_number_id'].as_string() == connection.phone_number_id,
+        ).with_for_update()).all()
+        for job in jobs:
+            job.recipients_summary = [apply_status(rec, status) if rec.get('message_id') == message_id else rec
+                                     for rec in job.recipients_summary]
+            update_stats(job)

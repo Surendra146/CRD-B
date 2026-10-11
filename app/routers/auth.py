@@ -1,9 +1,13 @@
 from datetime import UTC, datetime
 from uuid import uuid4
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from app.database.authorization import authorize, account_scope, enabled
 
 from app.database.connection import get_control_db
 from app.config.settings import get_settings
@@ -41,6 +45,22 @@ def register(payload: RegisterRequest, db: Session = Depends(get_control_db)):
     company_name = payload_data.get("companyName") or payload_data.get("company", {}).get("name") or name
     if not email or not password or not name:
         raise HTTPException(400, "email, password and name are required")
+    if enabled():
+        authorize(db, "register", data={"email": email, "password": hash_password(password), "name": name,
+            "phone": payload_data.get("phone"), "company": company_name,
+            "identifier": f"{slugify(company_name)[:200]}-{uuid4().hex}", "code": uuid4().hex.upper(),
+            "modules": resolve_allowed_modules("owner", payload_data.get("allowedModules"))})
+        try:
+            created = db.scalar(text("SELECT hanuram_auth.register_account()"))
+            authorize(db, "identity.user", sub=created["user_id"], tenant=created["tenant_id"], iat=time.time())
+            user = db.get(User, created["user_id"])
+            account_scope(db, user)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "User already exists") from None
+        token = create_token({"userId": user.id, "tenantId": user.tenant_id})
+        return {"success": True, "token": token, "data": account_data(user, db)}
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "User already exists")
 
@@ -90,9 +110,11 @@ def verify_phone_otp(user: User = Depends(get_current_user), db: Session = Depen
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_control_db)):
     payload_data = payload.to_payload()
     email = str(payload_data.get("email", "")).strip().lower()
+    authorize(db, "identity.email", email=email)
     user = db.scalar(select(User).where(User.email == email))
     if not user or not user.is_active or not verify_password(str(payload_data.get("password", "")), user.password):
         raise HTTPException(401, "Invalid credentials")
+    authorize(db, "account", sub=user.id, tenant=user.tenant_id, org=user.organization_id, iat=time.time())
     if not user.password.startswith(("$2a$", "$2b$", "$2y$")):
         user.password = hash_password(str(payload_data.get("password", "")))
     # These existing database columns store UTC without timezone information.

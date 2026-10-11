@@ -6,6 +6,13 @@ remain. Subscription changes do not record a payment or create a paid invoice.
 
 ## Operator setup (not performed automatically)
 
+The Render-compatible authorization implementation adds revisions
+`f91c320ab006` and `f91c320ab007` after the payment-removal revision. Follow
+[RENDER_AUTHORIZATION_DEPLOYMENT.md](RENDER_AUTHORIZATION_DEPLOYMENT.md) for
+operator preparation, the complete migration sequence, and key provisioning.
+The staff bootstrap script now requires a separate process-only
+`OPERATOR_DATABASE_URL`; it does not use runtime/control credentials.
+
 1. Back up the development database and review migration `f91c320ab005` after
    `f91c320ab004`. It drops gateway settings, the provider webhook inbox, plan and
    subscription provider metadata. It renames invoice references in place,

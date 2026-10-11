@@ -34,24 +34,24 @@ def test_platform_and_unknown_roles_cannot_be_assigned(role):
 
 def test_empty_member_grants_deny_module_access():
     with pytest.raises(HTTPException):
-        require_module("customers")(identity("member"), request("GET"))
+        require_module("customers")(user=identity("member"), request=request("GET"))
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 def test_viewer_cannot_mutate_even_with_assigned_module(method):
     with pytest.raises(HTTPException) as error:
-        require_module("customers")(identity(modules=["customers"]), request(method))
+        require_module("customers")(user=identity(modules=["customers"]), request=request(method))
     assert error.value.status_code == 403
 
 
 def test_viewer_can_read_assigned_module():
     viewer = identity(modules=["customers"])
-    assert require_module("customers")(viewer, request("GET")) is viewer
+    assert require_module("customers")(user=viewer, request=request("GET")) is viewer
 
 
 def test_viewer_cannot_send_from_background_worker():
     with pytest.raises(HTTPException):
-        require_whatsapp_access(identity(modules=["whatsapp"]))
+        require_whatsapp_access(user=identity(modules=["whatsapp"]), request=None)
 
 
 @pytest.mark.parametrize("tenant,organization", [(None, 2), (1, None), (99, 2), (1, 99)])
@@ -62,4 +62,4 @@ def test_null_or_foreign_ownership_denied(tenant, organization):
 
 
 def test_dashboard_alias_permission_matches_frontend():
-    assert require_module("custom-dashboards")(identity(modules=["dashboard"]), request("GET"))
+    assert require_module("custom-dashboards")(user=identity(modules=["dashboard"]), request=request("GET"))

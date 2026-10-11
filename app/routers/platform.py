@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from app.database.authorization import staff_scope, enabled
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_control_db
@@ -74,12 +75,14 @@ class CancellationPayload(ManualPayload):
 
 @router.get("/subscriptions")
 def subscriptions(user: User = Depends(staff_permission("subscriptions.read")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "subscriptions.read")
     return {"success": True, "data": [public_subscription(row) for row in db.scalars(
         select(Subscription).order_by(Subscription.updated_at.desc()).limit(200))]}
 
 
 @router.get("/organizations")
 def subscription_organizations(user: User = Depends(staff_permission("subscriptions.read")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "subscriptions.read")
     from app.models import Organization
     return {"success": True, "data": [{"id": row.id, "tenant_id": row.tenant_id, "name": row.name}
         for row in db.scalars(select(Organization).order_by(Organization.id).limit(200))]}
@@ -87,6 +90,7 @@ def subscription_organizations(user: User = Depends(staff_permission("subscripti
 
 @router.get("/subscription-plans")
 def subscription_plans(user: User = Depends(staff_permission("subscriptions.read")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "subscriptions.read")
     return {"success": True, "data": [model_to_dict(row) for row in db.scalars(
         select(SubscriptionPlan).order_by(SubscriptionPlan.id))]}
 
@@ -138,6 +142,9 @@ def access(user: User = Depends(get_current_user), db: Session = Depends(get_con
 
 @router.get("/overview")
 def overview(user: User = Depends(staff_permission("tenants.read")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "tenants.read")
+    if enabled():
+        return {"success": True, "data": db.scalar(text("SELECT hanuram_auth.platform_overview()"))}
     return {"success": True, "data": {"tenants": db.scalar(select(func.count()).select_from(Tenant)),
         "active_subscriptions": db.scalar(select(func.count()).select_from(Subscription).where(*billing.active_subscription_predicate(datetime.now(UTC)))),
         "pending_onboarding": db.scalar(select(func.count()).select_from(OnboardingRequest).where(OnboardingRequest.status != "ready"))}}
@@ -145,11 +152,14 @@ def overview(user: User = Depends(staff_permission("tenants.read")), db: Session
 
 @router.get("/tenants")
 def tenants(user: User = Depends(staff_permission("tenants.read")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "tenants.read")
     return {"success": True, "data": [model_to_dict(row) for row in db.scalars(select(Tenant).order_by(Tenant.id.desc()).limit(200))]}
 
 
 @router.patch("/tenants/{tenant_id}")
 def update_tenant(tenant_id: int, payload: TenantPayload, user: User = Depends(staff_permission("tenants.manage")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "tenants.manage", target_tenant=tenant_id,
+                action="platform.tenant.status.updated", resource=str(tenant_id))
     row = db.get(Tenant, tenant_id)
     if not row:
         raise HTTPException(404, "Business not found")
@@ -163,11 +173,13 @@ def update_tenant(tenant_id: int, payload: TenantPayload, user: User = Depends(s
 
 @router.get("/plans")
 def plans(user: User = Depends(staff_permission("plans.manage")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "plans.manage")
     return {"success": True, "data": [model_to_dict(row) for row in db.scalars(select(SubscriptionPlan))]}
 
 
 @router.post("/plans")
 def create_plan(payload: PlanPayload, user: User = Depends(staff_permission("plans.manage")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "plans.manage", resource=payload.id, action="platform.plan.created")
     if db.get(SubscriptionPlan, payload.id):
         raise HTTPException(409, "Create a new plan version rather than changing existing subscription prices")
     row = SubscriptionPlan(id=payload.id, name=payload.name,
@@ -181,16 +193,20 @@ def create_plan(payload: PlanPayload, user: User = Depends(staff_permission("pla
 
 @router.get("/onboarding")
 def onboarding(user: User = Depends(staff_permission("onboarding.manage")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "onboarding.manage")
     return {"success": True, "data": [model_to_dict(row) for row in db.scalars(select(OnboardingRequest).order_by(OnboardingRequest.created_at.desc()).limit(200))]}
 
 
 @router.patch("/onboarding/{request_id}")
 def update_onboarding(request_id: str, payload: OnboardingUpdate, user: User = Depends(staff_permission("onboarding.manage")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "onboarding.manage", resource=request_id, action="platform.onboarding.updated")
     row = db.get(OnboardingRequest, request_id)
     if not row:
         raise HTTPException(404, "Onboarding request not found")
+    staff_scope(db, user, "onboarding.manage", resource=request_id, action="platform.onboarding.updated",
+                target_tenant=row.tenant_id, target_org=row.organization_id)
     if payload.status == "ready":
-        connected = db.scalar(select(WhatsAppConnection).where(WhatsAppConnection.tenant_id == row.tenant_id, WhatsAppConnection.organization_id == row.organization_id))
+        connected = db.execute(select(WhatsAppConnection.id, WhatsAppConnection.token_expires_at).where(WhatsAppConnection.tenant_id == row.tenant_id, WhatsAppConnection.organization_id == row.organization_id)).first()
         if not connected or not payload.provider_reference:
             raise HTTPException(409, "Customer authorization and a verified provider billing reference are required")
         if connected.token_expires_at and connected.token_expires_at <= datetime.now(UTC).replace(tzinfo=None):
@@ -205,6 +221,8 @@ def update_onboarding(request_id: str, payload: OnboardingUpdate, user: User = D
 
 @router.post("/usage")
 def record_provider_usage(payload: UsagePayload, user: User = Depends(staff_permission("usage.manage")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "usage.manage", target_tenant=payload.tenant_id, target_org=payload.organization_id,
+                resource=payload.external_reference, action="platform.provider.usage.recorded")
     from app.models import Organization
     organization = db.get(Organization, payload.organization_id)
     if not organization or organization.tenant_id != payload.tenant_id:
@@ -223,4 +241,5 @@ def record_provider_usage(payload: UsagePayload, user: User = Depends(staff_perm
 
 @router.get("/audit")
 def events(user: User = Depends(staff_permission("audit.read")), db: Session = Depends(get_control_db)):
+    staff_scope(db, user, "audit.read")
     return {"success": True, "data": [model_to_dict(row) for row in db.scalars(select(AuditEvent).order_by(AuditEvent.occurred_at.desc()).limit(200))]}

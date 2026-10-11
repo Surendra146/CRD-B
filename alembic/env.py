@@ -6,10 +6,19 @@ from sqlalchemy import engine_from_config, pool
 from app.config.settings import get_settings
 from app.database.connection import Base
 from app.models import tables  # noqa: F401
+import os
 
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+settings = get_settings()
+migration_url = os.getenv('MIGRATION_DATABASE_URL')
+if settings.require_rls and not migration_url:
+    raise RuntimeError('Set MIGRATION_DATABASE_URL to the separate operator credential; application logins cannot run migrations')
+migration_url = migration_url or settings.database_url
+migration_url = migration_url.replace('postgres://', 'postgresql+psycopg://', 1)
+if migration_url.startswith('postgresql://'):
+    migration_url = migration_url.replace('postgresql://','postgresql+psycopg://',1)
+config.set_main_option("sqlalchemy.url", migration_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

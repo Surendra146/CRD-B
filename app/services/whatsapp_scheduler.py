@@ -25,6 +25,15 @@ def parse_schedule(value):
 
 
 def dispatch_due_job(session_factory):
+    from app.database.authorization import enabled, claim_campaign
+    if enabled():
+        with session_factory() as discovery:
+            claim = claim_campaign(discovery)
+        if not claim:
+            return False
+        from app.tasks import deliver_job
+        deliver_job.run(claim['job_id'], claim['tenant_id'], claim['organization_id'], claim)
+        return True
     from app.models import WhatsAppBulkJob, User
     from app.services.security import require_whatsapp_access
     from app.services.whatsapp_connections import resolve_credentials
@@ -43,7 +52,7 @@ def dispatch_due_job(session_factory):
             user = db.get(User, job.created_by)
             if not user or user.tenant_id != job.tenant_id or user.organization_id != job.organization_id or not user.is_active:
                 raise HTTPException(403, "Campaign creator no longer has access to this organization")
-            require_whatsapp_access(user)
+            require_whatsapp_access(request=None, user=user)
             connection = resolve_credentials(db, user, job.audience_payload.get("sender_phone_number_id"))
             if connection.whatsapp_phone_number_id != job.audience_payload.get("sender_phone_number_id"):
                 raise HTTPException(409, "The campaign's WhatsApp sender has changed; create a new campaign")

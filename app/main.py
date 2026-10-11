@@ -21,24 +21,30 @@ from app.middlewares.auth_rate_limit import AuthRateLimitMiddleware
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     if settings.require_rls:
-        from app.database.tenancy import verify_runtime_role
+        from app.database.tenancy import verify_runtime_role, verify_authorization_installation
         if settings.control_database_url == settings.database_url:
             raise RuntimeError("Production requires separate control and RLS runtime database credentials")
         with engine.connect() as connection:
             verify_runtime_role(connection)
+            runtime_installation=verify_authorization_installation(connection, 'hanuram_runtime')
+        with control_engine.connect() as connection:
+            control_installation=verify_authorization_installation(connection, 'hanuram_control')
+        if runtime_installation != control_installation:
+            raise RuntimeError('Runtime and control must connect to the same authorization installation')
     if settings.auto_create_tables and not settings.require_rls:
         create_all()
-    db = SessionLocal()
-    try:
-        backfill_owner_modules(db)
-    finally:
-        db.close()
+    if not settings.require_rls:
+        db = SessionLocal()
+        try:
+            backfill_owner_modules(db)
+        finally:
+            db.close()
     from app.services.whatsapp_scheduler import start_scheduler
     stop, thread = start_scheduler(ControlSessionLocal) if settings.environment.lower() != "test" and settings.campaign_transport == "database" else (None, None)
     try:
         yield
     finally:
-        if stop is not None:
+        if stop is not None and thread is not None:
             stop.set()
             await asyncio.to_thread(thread.join)
 

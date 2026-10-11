@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
 
 import bcrypt
+import math
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -71,6 +72,19 @@ def get_current_user(
     try:
         if isinstance(user_id, bool) or not isinstance(user_id, (int, str)):
             raise ValueError
+        tenant_claim = decoded.get("tenantId", decoded.get("tenant_id"))
+        if isinstance(tenant_claim, bool) or not isinstance(tenant_claim, (int, str)) or int(tenant_claim) <= 0 or int(user_id) <= 0:
+            raise ValueError
+        for field in ("exp", "iat"):
+            value = decoded.get(field)
+            if field == "iat" and value is None and not get_settings().require_rls:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError
+        from app.database.authorization import authorize
+        if user_id:
+            authorize(db, "identity.user", sub=int(user_id), tenant=decoded.get("tenantId", decoded.get("tenant_id")),
+                      iat=decoded.get("iat"), deadline=decoded["exp"])
         user = db.get(User, int(user_id)) if user_id else None
     except (TypeError, ValueError):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token subject") from None
@@ -102,6 +116,11 @@ def get_current_user(
 
     if not user.organization_id:
         raise HTTPException(403, "No business organization associated with this user")
+    user._authorization_iat = decoded.get("iat")
+    user._authorization_deadline = decoded["exp"]
+    from app.database.authorization import account_scope, actor_claims
+    account_scope(db, user)
+    authorize(tenant_db, "tenant", **actor_claims(user, db))
     bind_scope(tenant_db, effective_tenant_id, user.organization_id)
     request.state.user = user
     request.state.organization = organization
@@ -157,7 +176,7 @@ def enforce_read_only(user, request=None):
         raise HTTPException(403, "Viewer accounts have read-only access")
 
 
-def require_whatsapp_access(user: User = Depends(require_organization), request: Request = None) -> User:
+def require_whatsapp_access(request: Request, user: User = Depends(require_organization)) -> User:
     if "whatsapp" not in effective_modules(user):
         raise HTTPException(403, "WhatsApp permission is required")
     enforce_read_only(user, request)
@@ -165,7 +184,7 @@ def require_whatsapp_access(user: User = Depends(require_organization), request:
 
 
 def require_module(*modules):
-    def dependency(user: User = Depends(require_organization), request: Request = None):
+    def dependency(request: Request, user: User = Depends(require_organization)):
         if not {normalize_module(module) for module in modules}.intersection(effective_modules(user)):
             raise HTTPException(403, "You do not have permission to access this module")
         enforce_read_only(user, request)
