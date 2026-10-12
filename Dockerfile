@@ -22,6 +22,7 @@ COPY requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements-dev.txt
 COPY --chown=cbd:cbd pytest.ini ./
 COPY --chown=cbd:cbd tests ./tests
+COPY --chown=cbd:cbd scripts ./scripts
 USER cbd
 ENV ENVIRONMENT=test
 HEALTHCHECK NONE
