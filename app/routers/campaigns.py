@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import Float, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.services.crud import apply_payload, paginate
@@ -14,6 +14,30 @@ from app.services.security import ensure_tenant_access, require_organization, te
 ACTIVE_STATUSES = {"active", "running"}
 
 
+def apply_audience_filters(statement, filters):
+    for key, field in (("statuses", "status"), ("segments", "segment")):
+        if filters.get(key):
+            statement = statement.where(Customer.lifecycle[field].as_string().in_(filters[key]))
+    for key, field, minimum in (
+        ("minDaysSinceLastPurchase", "daysSinceLastPurchase", True),
+        ("maxDaysSinceLastPurchase", "daysSinceLastPurchase", False),
+        ("minTotalSpent", "totalSpent", True),
+        ("minOrders", "totalPurchases", True),
+    ):
+        value = filters.get(key)
+        if value is not None:
+            try:
+                value = float(value)
+                import math
+                if not math.isfinite(value) or value < 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                raise HTTPException(400, f"{key} must be a nonnegative number") from None
+            column = cast(Customer.lifecycle[field].as_string(), Float)
+            statement = statement.where(column >= value if minimum else column <= value)
+    return statement
+
+
 def audience_size(db: Session, user: User, audience: dict) -> int:
     if user.organization_id is None:
         return 0
@@ -23,10 +47,7 @@ def audience_size(db: Session, user: User, audience: dict) -> int:
     )
     filters = audience.get("filters") or {}
     if audience.get("type") == "segment":
-        if filters.get("statuses"):
-            statement = statement.where(Customer.lifecycle["status"].as_string().in_(filters["statuses"]))
-        if filters.get("segments"):
-            statement = statement.where(Customer.lifecycle["segment"].as_string().in_(filters["segments"]))
+        statement = apply_audience_filters(statement, filters)
     if audience.get("type") == "custom" and audience.get("customerIds"):
         statement = statement.where(Customer.id.in_(audience["customerIds"]))
     return db.scalar(statement) or 0
@@ -50,6 +71,7 @@ def create_campaign(payload: CampaignCreateRequest, user: User = Depends(require
     if template_id is not None:
         ensure_tenant_access(db.get(WhatsAppTemplate, template_id), user, "Template")
     audience = payload_data.get("audience") or {}
+    validate_campaign_schedule(payload_data.get("schedule") or {})
     audience["estimatedReach"] = audience_size(db, user, audience)
     campaign = Campaign(
         tenant_id=tenant_id_for_user(user),
@@ -75,6 +97,8 @@ def create_campaign(payload: CampaignCreateRequest, user: User = Depends(require
 def update_campaign(campaign_id: int, payload: CampaignUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
     campaign = ensure_tenant_access(db.get(Campaign, campaign_id), user, "Campaign")
+    if "schedule" in payload_data:
+        validate_campaign_schedule(payload_data["schedule"] or {})
     if campaign.status in [*ACTIVE_STATUSES, "completed"]:
         raise HTTPException(400, "Cannot update an active or completed campaign")
     # Validate every accepted alias before apply_payload; an explicit null alias
@@ -109,6 +133,25 @@ def campaign_jobs(db, user, campaign_id):
     ).with_for_update()).all()
 
 
+def validate_campaign_schedule(schedule):
+    from app.services.whatsapp_scheduler import parse_schedule
+    if schedule.get("scheduledAt"):
+        parse_schedule(schedule["scheduledAt"])
+    elif schedule.get("startDate") or schedule.get("sendTime"):
+        # Accept existing clients, but do not silently launch their schedules immediately.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            local = datetime.fromisoformat(f"{schedule['startDate']}T{schedule['sendTime']}")
+            if local.tzinfo is None:
+                local = local.replace(tzinfo=ZoneInfo(schedule.get("timezone") or "Asia/Kolkata"))
+            schedule["scheduledAt"] = local.isoformat()
+        except (KeyError, ValueError, TypeError, ZoneInfoNotFoundError):
+            raise HTTPException(400, "Choose both a valid campaign date and time") from None
+        parse_schedule(schedule["scheduledAt"])
+    return schedule
+
+
 def launch_campaign(campaign_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     from app.config.settings import get_settings
     from app.schemas.whatsapp_marketing import WhatsAppBulkSendRequest
@@ -131,9 +174,7 @@ def launch_campaign(campaign_id: int, user: User = Depends(require_organization)
             raise HTTPException(400, "Select customers for this campaign")
         statement = statement.where(Customer.id.in_(ids))
     elif audience.get("type") == "segment":
-        for key, field in (("statuses", "status"), ("segments", "segment")):
-            if filters.get(key):
-                statement = statement.where(Customer.lifecycle[field].as_string().in_(filters[key]))
+        statement = apply_audience_filters(statement, filters)
     elif audience.get("type") not in {None, "all"}:
         raise HTTPException(400, "Unsupported campaign audience")
     customers = db.scalars(statement).all()
@@ -142,7 +183,7 @@ def launch_campaign(campaign_id: int, user: User = Depends(require_organization)
         "title": campaign.name, "audience_type": "custom_numbers",
         "audience": {"campaign_id": campaign.id, "numbers": [{"phone": c.phone, "name": c.name} for c in customers]},
         "template": {"name": template.whatsapp_template_name, "language": {"code": (template.content or {}).get("language")}},
-        "scheduled_at": (campaign.schedule or {}).get("scheduledAt"),
+        "scheduled_at": validate_campaign_schedule(campaign.schedule or {}).get("scheduledAt"),
     })
     try:
         result = send_bulk_whatsapp(payload, user, db)

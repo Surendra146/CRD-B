@@ -1,0 +1,112 @@
+[
+  {
+    "url": "https://crd-b.onrender.com/health",
+    "method": "GET",
+    "status": 200,
+    "content_type": "application/json",
+    "cors_origin": "https://crd-f.onrender.com",
+    "cors_credentials": "true",
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-b.onrender.com/ready",
+    "method": "GET",
+    "status": 503,
+    "content_type": "application/json",
+    "cors_origin": "https://crd-f.onrender.com",
+    "cors_credentials": "true",
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-b.onrender.com/api/auth/login",
+    "method": "OPTIONS",
+    "status": 200,
+    "content_type": "text/plain; charset=utf-8",
+    "cors_origin": "https://crd-f.onrender.com",
+    "cors_credentials": "true",
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-b.onrender.com/api/auth/login",
+    "method": "OPTIONS",
+    "status": 400,
+    "content_type": "text/plain; charset=utf-8",
+    "cors_origin": null,
+    "cors_credentials": "true",
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-b.onrender.com/api/auth/me",
+    "method": "GET",
+    "status": 401,
+    "content_type": "application/json",
+    "cors_origin": "https://crd-f.onrender.com",
+    "cors_credentials": "true",
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-b.onrender.com/openapi.json",
+    "method": "GET",
+    "status": 200,
+    "content_type": "application/json",
+    "cors_origin": null,
+    "cors_credentials": null,
+    "cors_expose_headers": null
+  },
+  {
+    "deployed_route_count": 142,
+    "local_routes_missing_on_deployment": []
+  },
+  {
+    "url": "https://crd-f.onrender.com/",
+    "method": "GET",
+    "status": 200,
+    "content_type": "text/html; charset=utf-8",
+    "cors_origin": null,
+    "cors_credentials": null,
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-f.onrender.com/assets/index-BKksTlcq.js",
+    "method": "GET",
+    "status": 200,
+    "content_type": "application/javascript",
+    "cors_origin": null,
+    "cors_credentials": null,
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-f.onrender.com/assets/apiConfig-DnCp8NW6.js",
+    "method": "GET",
+    "status": 200,
+    "content_type": "application/javascript",
+    "cors_origin": null,
+    "cors_credentials": null,
+    "cors_expose_headers": null
+  },
+  {
+    "url": "https://crd-f.onrender.com/assets/apiConfig-DnCp8NW6.js",
+    "method": "GET",
+    "status": 200,
+    "content_type": "application/javascript",
+    "cors_origin": null,
+    "cors_credentials": null,
+    "cors_expose_headers": null
+  },
+  {
+    "frontend_bundle_api_origins": [
+      "http://localhost",
+      "https://crd-b.onrender.com"
+    ]
+  },
+  {
+    "readiness_recheck": {
+      "url": "https://crd-b.onrender.com/ready",
+      "status": 503,
+      "body": {
+        "success": false,
+        "status": "unavailable"
+      }
+    }
+  }
+]

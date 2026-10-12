@@ -1,0 +1,2307 @@
+{
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "handler": "health_health_get"
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "handler": "ready_ready_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/numbers",
+      "handler": "numbers_api_saas_numbers_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/saas/numbers/{phone_number_id}/default",
+      "handler": "default_sender_api_saas_numbers__phone_number_id__default_post"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/saas/numbers/{phone_number_id}",
+      "handler": "disconnect_number_api_saas_numbers__phone_number_id__delete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/saas/templates/sync",
+      "handler": "sync_templates_api_saas_templates_sync_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/profile",
+      "handler": "profile_api_saas_profile_get"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/saas/profile",
+      "handler": "update_profile_api_saas_profile_put"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/plans",
+      "handler": "plans_api_saas_plans_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/subscription",
+      "handler": "subscription_api_saas_subscription_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/invoices",
+      "handler": "invoices_api_saas_invoices_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/usage",
+      "handler": "usage_api_saas_usage_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/consents",
+      "handler": "consents_api_saas_consents_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/saas/consents",
+      "handler": "update_consent_api_saas_consents_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/onboarding",
+      "handler": "onboarding_api_saas_onboarding_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/saas/onboarding",
+      "handler": "request_onboarding_api_saas_onboarding_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/saas/messages",
+      "handler": "messages_api_saas_messages_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/subscriptions",
+      "handler": "subscriptions_api_platform_subscriptions_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/organizations",
+      "handler": "subscription_organizations_api_platform_organizations_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/subscription-plans",
+      "handler": "subscription_plans_api_platform_subscription_plans_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/tenants/{tenant_id}/organizations/{organization_id}/subscription/assign",
+      "handler": "assign_subscription_api_platform_tenants__tenant_id__organizations__organization_id__subscription_assign_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/tenants/{tenant_id}/organizations/{organization_id}/subscription/renew",
+      "handler": "renew_subscription_api_platform_tenants__tenant_id__organizations__organization_id__subscription_renew_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/tenants/{tenant_id}/organizations/{organization_id}/subscription/cancel",
+      "handler": "cancel_subscription_api_platform_tenants__tenant_id__organizations__organization_id__subscription_cancel_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/access",
+      "handler": "access_api_platform_access_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/overview",
+      "handler": "overview_api_platform_overview_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/tenants",
+      "handler": "tenants_api_platform_tenants_get"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/platform/tenants/{tenant_id}",
+      "handler": "update_tenant_api_platform_tenants__tenant_id__patch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/plans",
+      "handler": "plans_api_platform_plans_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/plans",
+      "handler": "create_plan_api_platform_plans_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/onboarding",
+      "handler": "onboarding_api_platform_onboarding_get"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/platform/onboarding/{request_id}",
+      "handler": "update_onboarding_api_platform_onboarding__request_id__patch"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/usage",
+      "handler": "record_provider_usage_api_platform_usage_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/audit",
+      "handler": "events_api_platform_audit_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "handler": "register_api_auth_register_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/verify-phone-otp",
+      "handler": "verify_phone_otp_api_auth_verify_phone_otp_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "handler": "login_api_auth_login_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "handler": "logout_api_auth_logout_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "handler": "get_me_api_auth_me_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "handler": "refresh_api_auth_refresh_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "handler": "forgot_password_api_auth_forgot_password_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "handler": "reset_password_api_auth_reset_password_post"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/auth/profile",
+      "handler": "update_profile_api_auth_profile_put"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/auth/password",
+      "handler": "change_password_api_auth_password_put"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/organization-settings",
+      "handler": "get_organization_settings_api_auth_organization_settings_get"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/organization-settings",
+      "handler": "update_organization_settings_api_auth_organization_settings_patch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/members",
+      "handler": "get_members_api_auth_members_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/members",
+      "handler": "create_member_api_auth_members_post"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/members/{user_id}",
+      "handler": "update_member_api_auth_members__user_id__patch"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/members/{user_id}/role",
+      "handler": "update_member_role_api_auth_members__user_id__role_patch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/roles",
+      "handler": "get_roles_api_auth_roles_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/roles",
+      "handler": "create_role_api_auth_roles_post"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/roles/{role_key}",
+      "handler": "update_role_api_auth_roles__role_key__patch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/customers/",
+      "handler": "get_customers_api_customers__get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers/",
+      "handler": "create_customer_api_customers__post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/customers/{customer_id}",
+      "handler": "get_customer_api_customers__customer_id__get"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/customers/{customer_id}",
+      "handler": "update_customer_api_customers__customer_id__put"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/customers/{customer_id}",
+      "handler": "delete_customer_api_customers__customer_id__delete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers/{customer_id}/purchases",
+      "handler": "add_purchase_api_customers__customer_id__purchases_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers/{customer_id}/interactions",
+      "handler": "add_interaction_api_customers__customer_id__interactions_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/customers/{customer_id}/timeline",
+      "handler": "get_timeline_api_customers__customer_id__timeline_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers/bulk-update-status",
+      "handler": "bulk_update_status_api_customers_bulk_update_status_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/campaigns/",
+      "handler": "get_campaigns_api_campaigns__get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/campaigns/",
+      "handler": "create_campaign_api_campaigns__post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/campaigns/{campaign_id}",
+      "handler": "get_campaign_api_campaigns__campaign_id__get"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/campaigns/{campaign_id}",
+      "handler": "update_campaign_api_campaigns__campaign_id__put"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/campaigns/{campaign_id}",
+      "handler": "delete_campaign_api_campaigns__campaign_id__delete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/campaigns/{campaign_id}/launch",
+      "handler": "launch_campaign_api_campaigns__campaign_id__launch_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/campaigns/{campaign_id}/pause",
+      "handler": "pause_campaign_api_campaigns__campaign_id__pause_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/campaigns/{campaign_id}/resume",
+      "handler": "resume_campaign_api_campaigns__campaign_id__resume_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/campaigns/{campaign_id}/complete",
+      "handler": "complete_campaign_api_campaigns__campaign_id__complete_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/whatsapp",
+      "handler": "send_whatsapp_api_communications_whatsapp_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/whatsapp/send",
+      "handler": "send_whatsapp_message_api_communications_whatsapp_send_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/",
+      "handler": "send_communication_api_communications__post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/whatsapp/bulk",
+      "handler": "send_bulk_whatsapp_api_communications_whatsapp_bulk_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/communications/whatsapp/bulk",
+      "handler": "list_bulk_jobs_api_communications_whatsapp_bulk_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/communications/whatsapp/bulk/{job_id}",
+      "handler": "get_bulk_job_api_communications_whatsapp_bulk__job_id__get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/whatsapp/bulk/{job_id}/action",
+      "handler": "bulk_job_action_api_communications_whatsapp_bulk__job_id__action_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/communications/whatsapp/configuration",
+      "handler": "whatsapp_configuration_api_communications_whatsapp_configuration_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/whatsapp-connection/",
+      "handler": "status_api_whatsapp_connection__get"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/whatsapp-connection/",
+      "handler": "disconnect_api_whatsapp_connection__delete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/whatsapp-connection/start",
+      "handler": "start_api_whatsapp_connection_start_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/whatsapp-connection/exchange",
+      "handler": "exchange_api_whatsapp_connection_exchange_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/whatsapp-connection/select",
+      "handler": "select_phone_api_whatsapp_connection_select_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/filter-numbers",
+      "handler": "filter_numbers_endpoint_api_marketing_filter_numbers_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/gmaps-extractor/search",
+      "handler": "gmaps_search_endpoint_api_marketing_gmaps_extractor_search_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/gmaps-extractor/import",
+      "handler": "gmaps_import_endpoint_api_marketing_gmaps_extractor_import_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/gmaps-extractor/history",
+      "handler": "gmaps_history_endpoint_api_marketing_gmaps_extractor_history_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/auto-responder",
+      "handler": "get_auto_responder_rules_api_marketing_auto_responder_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/auto-responder",
+      "handler": "create_auto_responder_rule_api_marketing_auto_responder_post"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/marketing/auto-responder/{rule_id}",
+      "handler": "update_auto_responder_rule_api_marketing_auto_responder__rule_id__put"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/marketing/auto-responder/{rule_id}",
+      "handler": "delete_auto_responder_rule_api_marketing_auto_responder__rule_id__delete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/auto-responder/test",
+      "handler": "test_auto_responder_endpoint_api_marketing_auto_responder_test_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/group-tools/parse-links",
+      "handler": "parse_group_links_endpoint_api_marketing_group_tools_parse_links_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/group-tools/grab-members",
+      "handler": "grab_members_endpoint_api_marketing_group_tools_grab_members_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/group-tools/import-members",
+      "handler": "import_group_members_endpoint_api_marketing_group_tools_import_members_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/",
+      "handler": "get_notifications_api_notifications__get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/templates/",
+      "handler": "get_templates_api_templates__get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/templates/",
+      "handler": "create_template_api_templates__post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/templates/{template_id}",
+      "handler": "get_template_api_templates__template_id__get"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/templates/{template_id}",
+      "handler": "update_template_api_templates__template_id__put"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/templates/{template_id}",
+      "handler": "delete_template_api_templates__template_id__delete"
+    },
+    {
+      "method": "GET",
+      "path": "/api/segments/",
+      "handler": "get_segments_api_segments__get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/segments/",
+      "handler": "create_segment_api_segments__post"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/segments/{segment_id}",
+      "handler": "update_segment_api_segments__segment_id__put"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/segments/{segment_id}",
+      "handler": "delete_segment_api_segments__segment_id__delete"
+    },
+    {
+      "method": "GET",
+      "path": "/api/segments/import/template",
+      "handler": "download_segment_template_api_segments_import_template_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/segments/import/validate",
+      "handler": "validate_segment_import_api_segments_import_validate_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/segments/import/save",
+      "handler": "save_segment_import_api_segments_import_save_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/segments/import/export-errors",
+      "handler": "export_segment_import_errors_api_segments_import_export_errors_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webhooks/whatsapp",
+      "handler": "verify_whatsapp_api_webhooks_whatsapp_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/webhooks/whatsapp",
+      "handler": "receive_whatsapp_api_webhooks_whatsapp_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/excel/upload",
+      "handler": "upload_excel_api_excel_upload_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/excel/map-columns",
+      "handler": "map_columns_api_excel_map_columns_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/excel/upload-jobs/{job_id}/status",
+      "handler": "get_upload_job_status_api_excel_upload_jobs__job_id__status_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/excel/history",
+      "handler": "get_upload_history_api_excel_history_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/excel/{upload_id}/process",
+      "handler": "process_upload_api_excel__upload_id__process_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/excel/{upload_id}/status",
+      "handler": "get_upload_status_api_excel__upload_id__status_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/excel/{dashboard_id}",
+      "handler": "get_excel_data_api_excel__dashboard_id__get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/dashboard",
+      "handler": "get_dashboard_api_analytics_dashboard_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/segments",
+      "handler": "get_segment_analysis_api_analytics_segments_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/cohorts",
+      "handler": "get_cohort_analysis_api_analytics_cohorts_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/churn",
+      "handler": "get_churn_analysis_api_analytics_churn_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/revenue",
+      "handler": "get_revenue_analytics_api_analytics_revenue_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/analytics/recalculate",
+      "handler": "recalculate_scores_api_analytics_recalculate_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/{dashboard_id}/filters",
+      "handler": "get_legacy_filter_options_api_analytics__dashboard_id__filters_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/{dashboard_id}/raw",
+      "handler": "get_legacy_raw_data_api_analytics__dashboard_id__raw_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/{dashboard_id}",
+      "handler": "get_legacy_dashboard_analytics_api_analytics__dashboard_id__get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/uploads/",
+      "handler": "upload_file_api_uploads__post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/uploads/suggest-mappings",
+      "handler": "suggest_mappings_api_uploads_suggest_mappings_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/target-fields",
+      "handler": "get_target_fields_api_uploads_target_fields_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/history",
+      "handler": "get_upload_history_api_uploads_history_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/history/report/options",
+      "handler": "get_upload_report_options_api_uploads_history_report_options_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/history/report",
+      "handler": "get_upload_report_api_uploads_history_report_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/history/report/export/excel",
+      "handler": "export_upload_report_excel_api_uploads_history_report_export_excel_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/history/report/export/pdf",
+      "handler": "export_upload_report_pdf_api_uploads_history_report_export_pdf_get"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/uploads/{upload_id}/mapping",
+      "handler": "set_column_mapping_api_uploads__upload_id__mapping_put"
+    },
+    {
+      "method": "POST",
+      "path": "/api/uploads/{upload_id}/process",
+      "handler": "process_upload_api_uploads__upload_id__process_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/uploads/{upload_id}/confirm-save",
+      "handler": "confirm_save_upload_api_uploads__upload_id__confirm_save_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/{upload_id}/errors/export",
+      "handler": "export_upload_errors_api_uploads__upload_id__errors_export_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/uploads/{upload_id}/status",
+      "handler": "get_upload_status_api_uploads__upload_id__status_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/system-fields",
+      "handler": "system_fields_api_system_fields_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fields",
+      "handler": "fields_api_fields_get"
+    }
+  ],
+  "requests": [
+    {
+      "service": "analyticsApi.getDashboard",
+      "file": "src/services/analytics.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/analytics/dashboard",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/analytics/dashboard"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "analyticsApi.getSegments",
+      "file": "src/services/analytics.js",
+      "line": 14,
+      "method": "GET",
+      "path": "/api/analytics/segments",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/analytics/segments"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "analyticsApi.getCohorts",
+      "file": "src/services/analytics.js",
+      "line": 20,
+      "method": "GET",
+      "path": "/api/analytics/cohorts",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/analytics/cohorts"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "analyticsApi.getChurn",
+      "file": "src/services/analytics.js",
+      "line": 27,
+      "method": "GET",
+      "path": "/api/analytics/churn",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/analytics/churn"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "analyticsApi.getRevenue",
+      "file": "src/services/analytics.js",
+      "line": 33,
+      "method": "GET",
+      "path": "/api/analytics/revenue",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/analytics/revenue"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "analyticsApi.recalculateScores",
+      "file": "src/services/analytics.js",
+      "line": 40,
+      "method": "POST",
+      "path": "/api/analytics/recalculate",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/analytics/recalculate"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customDashboardAnalyticsApi.getFilters",
+      "file": "src/services/analytics.js",
+      "line": 48,
+      "method": "GET",
+      "path": "/api/analytics/{value}/filters",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/analytics/{dashboard_id}/filters"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customDashboardAnalyticsApi.getData",
+      "file": "src/services/analytics.js",
+      "line": 54,
+      "method": "GET",
+      "path": "/api/analytics/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/analytics/{dashboard_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.logout",
+      "file": "src/services/auth.js",
+      "line": 6,
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/logout"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.login",
+      "file": "src/services/auth.js",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/auth/login",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/login"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.register",
+      "file": "src/services/auth.js",
+      "line": 19,
+      "method": "POST",
+      "path": "/api/auth/register",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/register"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.verifyPhoneOtp",
+      "file": "src/services/auth.js",
+      "line": 27,
+      "method": "POST",
+      "path": "/api/auth/verify-phone-otp",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/verify-phone-otp"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.getMe",
+      "file": "src/services/auth.js",
+      "line": 38,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/me"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.getOrganizationSettings",
+      "file": "src/services/auth.js",
+      "line": 45,
+      "method": "GET",
+      "path": "/api/auth/organization-settings",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/organization-settings"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.updateOrganizationSettings",
+      "file": "src/services/auth.js",
+      "line": 52,
+      "method": "PATCH",
+      "path": "/api/auth/organization-settings",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/organization-settings"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.getMembers",
+      "file": "src/services/auth.js",
+      "line": 63,
+      "method": "GET",
+      "path": "/api/auth/members",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/members"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.createMember",
+      "file": "src/services/auth.js",
+      "line": 70,
+      "method": "POST",
+      "path": "/api/auth/members",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/members"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.updateMember",
+      "file": "src/services/auth.js",
+      "line": 78,
+      "method": "PATCH",
+      "path": "/api/auth/members/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/members/{user_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.updateMemberRole",
+      "file": "src/services/auth.js",
+      "line": 86,
+      "method": "PATCH",
+      "path": "/api/auth/members/{value}/role",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/auth/members/{user_id}/role"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.updateMemberAccess",
+      "file": "src/services/auth.js",
+      "line": 94,
+      "method": "PATCH",
+      "path": "/api/auth/members/{value}/role",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/members/{user_id}/role"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.getRoles",
+      "file": "src/services/auth.js",
+      "line": 105,
+      "method": "GET",
+      "path": "/api/auth/roles",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/roles"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.createRole",
+      "file": "src/services/auth.js",
+      "line": 112,
+      "method": "POST",
+      "path": "/api/auth/roles",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/roles"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "authApi.updateRole",
+      "file": "src/services/auth.js",
+      "line": 120,
+      "method": "PATCH",
+      "path": "/api/auth/roles/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/auth/roles/{role_key}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.getAll",
+      "file": "src/services/campaigns.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/campaigns/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/campaigns/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.getById",
+      "file": "src/services/campaigns.js",
+      "line": 15,
+      "method": "GET",
+      "path": "/api/campaigns/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.create",
+      "file": "src/services/campaigns.js",
+      "line": 22,
+      "method": "POST",
+      "path": "/api/campaigns/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/campaigns/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.update",
+      "file": "src/services/campaigns.js",
+      "line": 30,
+      "method": "PUT",
+      "path": "/api/campaigns/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.delete",
+      "file": "src/services/campaigns.js",
+      "line": 38,
+      "method": "DELETE",
+      "path": "/api/campaigns/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.launch",
+      "file": "src/services/campaigns.js",
+      "line": 45,
+      "method": "POST",
+      "path": "/api/campaigns/{value}/launch",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}/launch"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.start",
+      "file": "src/services/campaigns.js",
+      "line": 53,
+      "method": "POST",
+      "path": "/api/campaigns/{value}/launch",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}/launch"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.pause",
+      "file": "src/services/campaigns.js",
+      "line": 60,
+      "method": "POST",
+      "path": "/api/campaigns/{value}/pause",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}/pause"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.resume",
+      "file": "src/services/campaigns.js",
+      "line": 67,
+      "method": "POST",
+      "path": "/api/campaigns/{value}/resume",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}/resume"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "campaignsApi.complete",
+      "file": "src/services/campaigns.js",
+      "line": 74,
+      "method": "POST",
+      "path": "/api/campaigns/{value}/complete",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/campaigns/{campaign_id}/complete"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "communicationsApi.configuration",
+      "file": "src/services/communications.js",
+      "line": 6,
+      "method": "GET",
+      "path": "/api/communications/whatsapp/configuration",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/communications/whatsapp/configuration"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "communicationsApi.sendWhatsApp",
+      "file": "src/services/communications.js",
+      "line": 9,
+      "method": "POST",
+      "path": "/api/communications/whatsapp/send",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/communications/whatsapp/send"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "communicationsApi.sendBulkWhatsApp",
+      "file": "src/services/communications.js",
+      "line": 18,
+      "method": "POST",
+      "path": "/api/communications/whatsapp/bulk",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/communications/whatsapp/bulk"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "communicationsApi.getBulkJobs",
+      "file": "src/services/communications.js",
+      "line": 27,
+      "method": "GET",
+      "path": "/api/communications/whatsapp/bulk",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/communications/whatsapp/bulk"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "communicationsApi.getBulkJob",
+      "file": "src/services/communications.js",
+      "line": 35,
+      "method": "GET",
+      "path": "/api/communications/whatsapp/bulk/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/communications/whatsapp/bulk/{job_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "communicationsApi.bulkJobAction",
+      "file": "src/services/communications.js",
+      "line": 42,
+      "method": "POST",
+      "path": "/api/communications/whatsapp/bulk/{value}/action",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/communications/whatsapp/bulk/{job_id}/action"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.getAll",
+      "file": "src/services/customers.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/customers/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/customers/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.getById",
+      "file": "src/services/customers.js",
+      "line": 15,
+      "method": "GET",
+      "path": "/api/customers/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/customers/{customer_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.create",
+      "file": "src/services/customers.js",
+      "line": 22,
+      "method": "POST",
+      "path": "/api/customers/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/customers/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.update",
+      "file": "src/services/customers.js",
+      "line": 30,
+      "method": "PUT",
+      "path": "/api/customers/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/customers/{customer_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.delete",
+      "file": "src/services/customers.js",
+      "line": 38,
+      "method": "DELETE",
+      "path": "/api/customers/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/customers/{customer_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.getTimeline",
+      "file": "src/services/customers.js",
+      "line": 45,
+      "method": "GET",
+      "path": "/api/customers/{value}/timeline",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/customers/{customer_id}/timeline"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "customersApi.addInteraction",
+      "file": "src/services/customers.js",
+      "line": 52,
+      "method": "POST",
+      "path": "/api/customers/{value}/interactions",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/customers/{customer_id}/interactions"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.upload",
+      "file": "src/services/excel.js",
+      "line": 18,
+      "method": "POST",
+      "path": "/api/excel/upload",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/upload"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.getByDashboardId",
+      "file": "src/services/excel.js",
+      "line": 30,
+      "method": "GET",
+      "path": "/api/excel/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/{dashboard_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.mapColumns",
+      "file": "src/services/excel.js",
+      "line": 40,
+      "method": "POST",
+      "path": "/api/excel/map-columns",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/map-columns"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.processUpload",
+      "file": "src/services/excel.js",
+      "line": 54,
+      "method": "POST",
+      "path": "/api/excel/{value}/process",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/{upload_id}/process"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.getStatus",
+      "file": "src/services/excel.js",
+      "line": 64,
+      "method": "GET",
+      "path": "/api/excel/{value}/status",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/{upload_id}/status"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.getUploadJobStatus",
+      "file": "src/services/excel.js",
+      "line": 71,
+      "method": "GET",
+      "path": "/api/excel/upload-jobs/{value}/status",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/upload-jobs/{job_id}/status"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "excelApi.getHistory",
+      "file": "src/services/excel.js",
+      "line": 81,
+      "method": "GET",
+      "path": "/api/excel/history",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/excel/history"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.filterNumbers",
+      "file": "src/services/marketingTools.js",
+      "line": 8,
+      "method": "POST",
+      "path": "/api/marketing/filter-numbers",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/filter-numbers"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.searchGMaps",
+      "file": "src/services/marketingTools.js",
+      "line": 17,
+      "method": "POST",
+      "path": "/api/marketing/gmaps-extractor/search",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/gmaps-extractor/search"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.importGMapsLeads",
+      "file": "src/services/marketingTools.js",
+      "line": 25,
+      "method": "POST",
+      "path": "/api/marketing/gmaps-extractor/import",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/gmaps-extractor/import"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.getGMapsHistory",
+      "file": "src/services/marketingTools.js",
+      "line": 33,
+      "method": "GET",
+      "path": "/api/marketing/gmaps-extractor/history",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/marketing/gmaps-extractor/history"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.getAutoResponderRules",
+      "file": "src/services/marketingTools.js",
+      "line": 41,
+      "method": "GET",
+      "path": "/api/marketing/auto-responder",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/auto-responder"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.createAutoResponderRule",
+      "file": "src/services/marketingTools.js",
+      "line": 48,
+      "method": "POST",
+      "path": "/api/marketing/auto-responder",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/auto-responder"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.updateAutoResponderRule",
+      "file": "src/services/marketingTools.js",
+      "line": 56,
+      "method": "PUT",
+      "path": "/api/marketing/auto-responder/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/auto-responder/{rule_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.deleteAutoResponderRule",
+      "file": "src/services/marketingTools.js",
+      "line": 64,
+      "method": "DELETE",
+      "path": "/api/marketing/auto-responder/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/auto-responder/{rule_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.testAutoResponder",
+      "file": "src/services/marketingTools.js",
+      "line": 71,
+      "method": "POST",
+      "path": "/api/marketing/auto-responder/test",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/auto-responder/test"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.parseGroupLinks",
+      "file": "src/services/marketingTools.js",
+      "line": 80,
+      "method": "POST",
+      "path": "/api/marketing/group-tools/parse-links",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/group-tools/parse-links"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.grabGroupMembers",
+      "file": "src/services/marketingTools.js",
+      "line": 88,
+      "method": "POST",
+      "path": "/api/marketing/group-tools/grab-members",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/group-tools/grab-members"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "marketingToolsApi.importGroupMembers",
+      "file": "src/services/marketingTools.js",
+      "line": 96,
+      "method": "POST",
+      "path": "/api/marketing/group-tools/import-members",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/marketing/group-tools/import-members"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "notificationsApi.getAll",
+      "file": "src/services/notifications.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/notifications/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/notifications/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.profile",
+      "file": "src/services/saas.js",
+      "line": 4,
+      "method": "GET",
+      "path": "/api/saas/profile",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/profile"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.updateProfile",
+      "file": "src/services/saas.js",
+      "line": 5,
+      "method": "PUT",
+      "path": "/api/saas/profile",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/profile"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.plans",
+      "file": "src/services/saas.js",
+      "line": 6,
+      "method": "GET",
+      "path": "/api/saas/plans",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/plans"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.subscription",
+      "file": "src/services/saas.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/saas/subscription",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/subscription"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.invoices",
+      "file": "src/services/saas.js",
+      "line": 8,
+      "method": "GET",
+      "path": "/api/saas/invoices",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/invoices"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.usage",
+      "file": "src/services/saas.js",
+      "line": 9,
+      "method": "GET",
+      "path": "/api/saas/usage",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/usage"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.onboarding",
+      "file": "src/services/saas.js",
+      "line": 10,
+      "method": "GET",
+      "path": "/api/saas/onboarding",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/onboarding"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.requestOnboarding",
+      "file": "src/services/saas.js",
+      "line": 11,
+      "method": "POST",
+      "path": "/api/saas/onboarding",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/onboarding"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.numbers",
+      "file": "src/services/saas.js",
+      "line": 12,
+      "method": "GET",
+      "path": "/api/saas/numbers",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/numbers"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.defaultNumber",
+      "file": "src/services/saas.js",
+      "line": 13,
+      "method": "POST",
+      "path": "/api/saas/numbers/{value}/default",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/numbers/{phone_number_id}/default"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.disconnectNumber",
+      "file": "src/services/saas.js",
+      "line": 14,
+      "method": "DELETE",
+      "path": "/api/saas/numbers/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/numbers/{phone_number_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.syncTemplates",
+      "file": "src/services/saas.js",
+      "line": 15,
+      "method": "POST",
+      "path": "/api/saas/templates/sync",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/templates/sync"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.consents",
+      "file": "src/services/saas.js",
+      "line": 16,
+      "method": "GET",
+      "path": "/api/saas/consents",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/consents"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.setConsent",
+      "file": "src/services/saas.js",
+      "line": 17,
+      "method": "POST",
+      "path": "/api/saas/consents",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/saas/consents"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "saasApi.messages",
+      "file": "src/services/saas.js",
+      "line": 18,
+      "method": "GET",
+      "path": "/api/saas/messages",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/saas/messages"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.subscriptions",
+      "file": "src/services/saas.js",
+      "line": 22,
+      "method": "GET",
+      "path": "/api/platform/subscriptions",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/subscriptions"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.organizations",
+      "file": "src/services/saas.js",
+      "line": 23,
+      "method": "GET",
+      "path": "/api/platform/organizations",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/organizations"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.subscriptionPlans",
+      "file": "src/services/saas.js",
+      "line": 24,
+      "method": "GET",
+      "path": "/api/platform/subscription-plans",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/subscription-plans"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.manageSubscription",
+      "file": "src/services/saas.js",
+      "line": 25,
+      "method": "POST",
+      "path": "/api/platform/tenants/{value}/organizations/{value}/subscription/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/tenants/{tenant_id}/organizations/{organization_id}/subscription/assign",
+        "/api/platform/tenants/{tenant_id}/organizations/{organization_id}/subscription/renew",
+        "/api/platform/tenants/{tenant_id}/organizations/{organization_id}/subscription/cancel"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.access",
+      "file": "src/services/saas.js",
+      "line": 27,
+      "method": "GET",
+      "path": "/api/platform/access",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/access"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.overview",
+      "file": "src/services/saas.js",
+      "line": 28,
+      "method": "GET",
+      "path": "/api/platform/overview",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/overview"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.tenants",
+      "file": "src/services/saas.js",
+      "line": 29,
+      "method": "GET",
+      "path": "/api/platform/tenants",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/tenants"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.setTenant",
+      "file": "src/services/saas.js",
+      "line": 30,
+      "method": "PATCH",
+      "path": "/api/platform/tenants/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/tenants/{tenant_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.plans",
+      "file": "src/services/saas.js",
+      "line": 31,
+      "method": "GET",
+      "path": "/api/platform/plans",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/platform/plans"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.createPlan",
+      "file": "src/services/saas.js",
+      "line": 32,
+      "method": "POST",
+      "path": "/api/platform/plans",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/plans"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.onboarding",
+      "file": "src/services/saas.js",
+      "line": 33,
+      "method": "GET",
+      "path": "/api/platform/onboarding",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/onboarding"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.updateOnboarding",
+      "file": "src/services/saas.js",
+      "line": 34,
+      "method": "PATCH",
+      "path": "/api/platform/onboarding/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/onboarding/{request_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "platformApi.audit",
+      "file": "src/services/saas.js",
+      "line": 35,
+      "method": "GET",
+      "path": "/api/platform/audit",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/platform/audit"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.getAll",
+      "file": "src/services/segments.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/segments/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.create",
+      "file": "src/services/segments.js",
+      "line": 15,
+      "method": "POST",
+      "path": "/api/segments/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.update",
+      "file": "src/services/segments.js",
+      "line": 23,
+      "method": "PUT",
+      "path": "/api/segments/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/{segment_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.delete",
+      "file": "src/services/segments.js",
+      "line": 31,
+      "method": "DELETE",
+      "path": "/api/segments/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/{segment_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.downloadImportTemplate",
+      "file": "src/services/segments.js",
+      "line": 38,
+      "method": "GET",
+      "path": "/api/segments/import/template",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/import/template"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.validateImportFile",
+      "file": "src/services/segments.js",
+      "line": 62,
+      "method": "POST",
+      "path": "/api/segments/import/validate",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/import/validate"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.saveValidatedRows",
+      "file": "src/services/segments.js",
+      "line": 70,
+      "method": "POST",
+      "path": "/api/segments/import/save",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/import/save"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "segmentsApi.exportImportErrors",
+      "file": "src/services/segments.js",
+      "line": 78,
+      "method": "POST",
+      "path": "/api/segments/import/export-errors",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/segments/import/export-errors"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "templatesApi.getAll",
+      "file": "src/services/templates.js",
+      "line": 7,
+      "method": "GET",
+      "path": "/api/templates/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/templates/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "templatesApi.getById",
+      "file": "src/services/templates.js",
+      "line": 15,
+      "method": "GET",
+      "path": "/api/templates/{value}",
+      "used_by_ui": false,
+      "matched_routes": [
+        "/api/templates/{template_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "templatesApi.create",
+      "file": "src/services/templates.js",
+      "line": 22,
+      "method": "POST",
+      "path": "/api/templates/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/templates/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "templatesApi.update",
+      "file": "src/services/templates.js",
+      "line": 30,
+      "method": "PUT",
+      "path": "/api/templates/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/templates/{template_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "templatesApi.delete",
+      "file": "src/services/templates.js",
+      "line": 38,
+      "method": "DELETE",
+      "path": "/api/templates/{value}",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/templates/{template_id}"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.upload",
+      "file": "src/services/uploads.js",
+      "line": 15,
+      "method": "POST",
+      "path": "/api/uploads/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.suggestMappings",
+      "file": "src/services/uploads.js",
+      "line": 23,
+      "method": "POST",
+      "path": "/api/uploads/suggest-mappings",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/suggest-mappings"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.getTargetFields",
+      "file": "src/services/uploads.js",
+      "line": 31,
+      "method": "GET",
+      "path": "/api/uploads/target-fields",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/target-fields"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.setMapping",
+      "file": "src/services/uploads.js",
+      "line": 39,
+      "method": "PUT",
+      "path": "/api/uploads/{value}/mapping",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/{upload_id}/mapping"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.process",
+      "file": "src/services/uploads.js",
+      "line": 47,
+      "method": "POST",
+      "path": "/api/uploads/{value}/process",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/{upload_id}/process"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.confirmSave",
+      "file": "src/services/uploads.js",
+      "line": 54,
+      "method": "POST",
+      "path": "/api/uploads/{value}/confirm-save",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/{upload_id}/confirm-save"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.getStatus",
+      "file": "src/services/uploads.js",
+      "line": 62,
+      "method": "GET",
+      "path": "/api/uploads/{value}/status",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/{upload_id}/status"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.getHistory",
+      "file": "src/services/uploads.js",
+      "line": 69,
+      "method": "GET",
+      "path": "/api/uploads/history",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/history"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.getRecentUploadReport",
+      "file": "src/services/uploads.js",
+      "line": 77,
+      "method": "GET",
+      "path": "/api/uploads/history/report",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/history/report"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.getRecentUploadReportOptions",
+      "file": "src/services/uploads.js",
+      "line": 85,
+      "method": "GET",
+      "path": "/api/uploads/history/report/options",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/history/report/options"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.exportRecentUploadReportExcel",
+      "file": "src/services/uploads.js",
+      "line": 92,
+      "method": "GET",
+      "path": "/api/uploads/history/report/export/excel",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/history/report/export/excel"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.exportRecentUploadReportPdf",
+      "file": "src/services/uploads.js",
+      "line": 113,
+      "method": "GET",
+      "path": "/api/uploads/history/report/export/pdf",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/history/report/export/pdf"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "uploadsApi.exportErrors",
+      "file": "src/services/uploads.js",
+      "line": 134,
+      "method": "GET",
+      "path": "/api/uploads/{value}/errors/export",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/uploads/{upload_id}/errors/export"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "whatsappConnectionApi.status",
+      "file": "src/services/whatsappConnection.js",
+      "line": 5,
+      "method": "GET",
+      "path": "/api/whatsapp-connection/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/whatsapp-connection/"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "whatsappConnectionApi.start",
+      "file": "src/services/whatsappConnection.js",
+      "line": 6,
+      "method": "POST",
+      "path": "/api/whatsapp-connection/start",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/whatsapp-connection/start"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "whatsappConnectionApi.exchange",
+      "file": "src/services/whatsappConnection.js",
+      "line": 7,
+      "method": "POST",
+      "path": "/api/whatsapp-connection/exchange",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/whatsapp-connection/exchange"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "whatsappConnectionApi.select",
+      "file": "src/services/whatsappConnection.js",
+      "line": 8,
+      "method": "POST",
+      "path": "/api/whatsapp-connection/select",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/whatsapp-connection/select"
+      ],
+      "redirect": false
+    },
+    {
+      "service": "whatsappConnectionApi.disconnect",
+      "file": "src/services/whatsappConnection.js",
+      "line": 9,
+      "method": "DELETE",
+      "path": "/api/whatsapp-connection/",
+      "used_by_ui": true,
+      "matched_routes": [
+        "/api/whatsapp-connection/"
+      ],
+      "redirect": false
+    }
+  ],
+  "duplicate_backend_routes": [],
+  "backend_without_service": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "handler": "health_health_get"
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "handler": "ready_ready_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/usage",
+      "handler": "record_provider_usage_api_platform_usage_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "handler": "refresh_api_auth_refresh_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "handler": "forgot_password_api_auth_forgot_password_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "handler": "reset_password_api_auth_reset_password_post"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/auth/profile",
+      "handler": "update_profile_api_auth_profile_put"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/auth/password",
+      "handler": "change_password_api_auth_password_put"
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers/{customer_id}/purchases",
+      "handler": "add_purchase_api_customers__customer_id__purchases_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers/bulk-update-status",
+      "handler": "bulk_update_status_api_customers_bulk_update_status_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/whatsapp",
+      "handler": "send_whatsapp_api_communications_whatsapp_post"
+    },
+    {
+      "method": "POST",
+      "path": "/api/communications/",
+      "handler": "send_communication_api_communications__post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webhooks/whatsapp",
+      "handler": "verify_whatsapp_api_webhooks_whatsapp_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/webhooks/whatsapp",
+      "handler": "receive_whatsapp_api_webhooks_whatsapp_post"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/{dashboard_id}/raw",
+      "handler": "get_legacy_raw_data_api_analytics__dashboard_id__raw_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/system-fields",
+      "handler": "system_fields_api_system_fields_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fields",
+      "handler": "fields_api_fields_get"
+    }
+  ],
+  "missing_frontend_routes": []
+}

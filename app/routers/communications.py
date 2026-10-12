@@ -302,6 +302,7 @@ def whatsapp_configuration(user: User = Depends(require_organization), db: Sessi
     connection = public_connection(get_connection(db, user))
     return {"success": True, "data": {
         "organization_id": user.organization_id,
+        "max_broadcast_recipients": settings.max_broadcast_recipients,
         "sender_configured": connection["connected"],
         "webhook_secret_configured": bool(settings.meta_app_secret),
         "organization_authorized": connection["connected"],

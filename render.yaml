@@ -47,6 +47,8 @@ services:
     healthCheckPath: /ready
     envVars:
       - fromGroup: hanuram-enterprise
+      - key: CORS_ORIGINS
+        sync: false # Exact public frontend origin(s), comma-separated; never '*'.
       - key: REDIS_URL
         fromService:
           type: keyvalue

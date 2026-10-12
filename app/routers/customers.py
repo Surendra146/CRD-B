@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import Float, Integer, cast, select
 from sqlalchemy.orm import Session
 
 from app.services.crud import apply_payload, paginate, search_like
@@ -34,9 +34,20 @@ def get_customers(
     if segment:
         statement = statement.where(Customer.lifecycle["segment"].as_string() == segment)
     statement = search_like(statement, Customer, search or "", ["external_id", "name", "email", "phone", "address"])
-    sort_column = getattr(Customer, sortBy, Customer.created_at)
+    sort_column = customer_sort_column(sortBy)
     statement = statement.order_by(sort_column.asc() if sortOrder == "asc" else sort_column.desc())
     return paginate(db, statement, page, limit)
+
+
+def customer_sort_column(name: str):
+    columns = {
+        "createdAt": Customer.created_at,
+        "customerCreatedDate": Customer.customer_created_date,
+        "lifecycle.lastPurchaseDate": Customer.lifecycle["lastPurchaseDate"].as_string(),
+        "lifecycle.totalSpent": cast(Customer.lifecycle["totalSpent"].as_string(), Float),
+        "lifecycle.totalPurchases": cast(Customer.lifecycle["totalPurchases"].as_string(), Integer),
+    }
+    return columns.get(name, getattr(Customer, name, Customer.created_at) if name in Customer.__table__.columns else Customer.created_at)
 
 
 def get_customer(customer_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
@@ -99,6 +110,11 @@ def create_customer(payload: CustomerCreateRequest, user: User = Depends(require
 def update_customer(customer_id: int, payload: CustomerUpdateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     payload_data = payload.to_payload()
     customer = ensure_tenant_access(db.get(Customer, customer_id), user, "Customer")
+    if "customerCreatedDate" in payload_data:
+        bounds = day_bounds(payload_data["customerCreatedDate"])
+        if not bounds:
+            raise HTTPException(400, "Customer Created Date is invalid")
+        payload_data["customerCreatedDate"] = bounds[0]
     apply_payload(
         customer,
         payload_data,
@@ -106,6 +122,8 @@ def update_customer(customer_id: int, payload: CustomerUpdateRequest, user: User
     )
     if "phone" in payload_data:
         customer.phone = normalize_phone(payload_data["phone"])
+    if "purchases" in payload_data:
+        apply_customer_purchase_metrics(customer)
     db.commit()
     return {"success": True, "data": model_to_dict(customer)}
 

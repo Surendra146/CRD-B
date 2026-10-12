@@ -15,6 +15,7 @@ from app.database.tenancy import bind_scope
 from app.models import Customer, DataUpload, DataUploadRow, User
 from app.redis.connection import get_progress_cache
 from app.schemas.upload import ColumnMappingRequest, SuggestMappingsRequest
+from app.services.api_exports import excel_response, error_excel_response, pdf_response
 from app.services.security import ensure_tenant_access, require_organization, tenant_id_for_user
 from app.socket.progress import emit_upload_progress
 from app.utils.helpers import apply_customer_purchase_metrics, day_bounds, json_ready, model_to_dict, normalize_phone
@@ -443,7 +444,7 @@ def extract_csv_metadata(content: bytes) -> tuple[list[str], int, list[dict]]:
     reader = csv.DictReader(StringIO(text))
     columns = [str(column).strip() for column in (reader.fieldnames or []) if str(column).strip()]
     rows = [
-        {column: json_ready(row.get(column)) for column in columns}
+        {column: json_ready({str(key).strip(): value for key, value in row.items()}.get(column)) for column in columns}
         for row in reader
     ]
     return columns, len(rows), rows
@@ -462,13 +463,15 @@ def extract_excel_metadata(content: bytes) -> tuple[list[str], int, list[dict]]:
         return [], 0, []
     rows = sheet.iter_rows(values_only=True)
     header = next(rows, None) or []
-    columns = [str(column).strip() for column in header if column is not None and str(column).strip()]
+    indexed_columns = [(index, str(column).strip()) for index, column in enumerate(header)
+                       if column is not None and str(column).strip()]
+    columns = [column for _, column in indexed_columns]
     parsed_rows = []
     for values in rows:
         parsed_rows.append(
             {
                 column: json_ready(values[index] if index < len(values) else None)
-                for index, column in enumerate(columns)
+                for index, column in indexed_columns
             }
         )
     workbook.close()
@@ -483,7 +486,7 @@ def extract_upload_metadata(filename: str | None, content: bytes) -> tuple[list[
         return extract_excel_metadata(content)
     if extension == "xls":
         raise HTTPException(400, "XLS uploads are not supported yet. Please upload CSV or XLSX.")
-    return [], 0, []
+    raise HTTPException(400, "Please upload CSV or XLSX")
 
 
 async def upload_file(
@@ -493,7 +496,14 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     content = await file.read()
-    columns, total_rows, rows = extract_upload_metadata(file.filename, content)
+    if type not in TARGET_FIELDS_BY_UPLOAD_TYPE:
+        raise HTTPException(400, "Unsupported import type")
+    try:
+        columns, total_rows, rows = extract_upload_metadata(file.filename, content)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Unable to read this spreadsheet") from None
     raw_preview = rows[:PREVIEW_LIMIT]
     upload = DataUpload(
         tenant_id=tenant_id_for_user(user),
@@ -553,29 +563,76 @@ def get_target_fields(type: str = Query("customer_details")):
     }
 
 
-def get_upload_history(user: User = Depends(require_organization), db: Session = Depends(get_db)):
+def get_upload_history(user: User = Depends(require_organization), db: Session = Depends(get_db), limit: int = Query(200, ge=1, le=5000)):
     rows = db.scalars(
         select(DataUpload)
         .where(DataUpload.tenant_id == tenant_id_for_user(user), DataUpload.organization_id == user.organization_id)
-        .order_by(DataUpload.created_at.desc())
+        .order_by(DataUpload.created_at.desc()).limit(limit)
     ).all()
     return {"success": True, "data": [model_to_dict(row) for row in rows]}
 
 
-def get_upload_report_options():
-    return {"success": True, "data": {"statuses": ["pending", "processing", "completed", "failed", "partial"]}}
+def get_upload_report_options(user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    # Only names belonging to this organization are exposed, including to report-only users.
+    rows = db.execute(select(User.id, User.name).where(
+        User.tenant_id == tenant_id_for_user(user), User.organization_id == user.organization_id,
+    ).order_by(User.name)).all()
+    return {"success": True, "data": {"users": [{"id": row.id, "name": row.name} for row in rows],
+        "uploadTypes": [{"value": "customer_details", "label": "Customer Detail Import"},
+                        {"value": "customer_sales", "label": "Customer Sales Import"}],
+        "statuses": ["staged", "validating", "validated", "validated_with_errors", "saving", "completed", "failed", "partial"]}}
 
 
-def get_upload_report(user: User = Depends(require_organization), db: Session = Depends(get_db)):
-    return get_upload_history(user, db)
+class UploadReportFilters:
+    def __init__(self, reportType: str = Query("user_wise", pattern="^(user_wise|uploaded_excel_type_wise)$"),
+                 userId: int | None = Query(None, ge=1), uploadType: str | None = Query(None),
+                 fromDate: str | None = Query(None), toDate: str | None = Query(None),
+                 limit: int = Query(5000, ge=1, le=5000)):
+        self.user_id, self.upload_type, self.limit = userId, uploadType, limit
+        self.start = self.end = None
+        if fromDate or toDate:
+            start, end = day_bounds(fromDate), day_bounds(toDate)
+            if not start or not end or start[0] > end[0] or (end[0] - start[0]).days > 92:
+                raise HTTPException(400, "Choose a valid date range within 92 days")
+            self.start, self.end = start[0], end[1]
+        if uploadType and uploadType not in TARGET_FIELDS_BY_UPLOAD_TYPE:
+            raise HTTPException(400, "Unsupported import type")
 
 
-def export_upload_report_excel():
-    return {"success": True, "message": "Excel export is ready to implement with openpyxl"}
+def upload_report_rows(filters, user, db):
+    statement = select(DataUpload).where(DataUpload.tenant_id == tenant_id_for_user(user),
+                                         DataUpload.organization_id == user.organization_id)
+    if filters.user_id:
+        statement = statement.where(DataUpload.uploaded_by == filters.user_id)
+    if filters.upload_type:
+        statement = statement.where(DataUpload.type == filters.upload_type)
+    if filters.start:
+        statement = statement.where(DataUpload.created_at >= filters.start, DataUpload.created_at < filters.end)
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    return list(db.scalars(statement.order_by(DataUpload.created_at.desc()).limit(filters.limit))), total
 
 
-def export_upload_report_pdf():
-    return {"success": True, "message": "PDF export is ready to implement"}
+def get_upload_report(filters: UploadReportFilters = Depends(), user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    rows, total = upload_report_rows(filters, user, db)
+    return {"success": True, "data": {"total": total, "rows": [model_to_dict(row) for row in rows]}}
+
+
+def report_export_data(rows):
+    return ["Upload ID", "File", "Type", "User ID", "Created", "Status", "Total Rows", "Saved Rows", "Error Rows"], [
+        [row.id, (row.file or {}).get("originalName", ""), row.type, row.uploaded_by,
+         row.created_at.isoformat() if row.created_at else "", row.status,
+         (row.stats or {}).get("totalRows", 0), (row.stats or {}).get("savedRows", 0),
+         (row.stats or {}).get("errorRows", 0)] for row in rows]
+
+
+def export_upload_report_excel(filters: UploadReportFilters = Depends(), user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    rows, _ = upload_report_rows(filters, user, db)
+    return excel_response(*report_export_data(rows), "recent-upload-report.xlsx")
+
+
+def export_upload_report_pdf(filters: UploadReportFilters = Depends(), user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    rows, _ = upload_report_rows(filters, user, db)
+    return pdf_response(*report_export_data(rows), "recent-upload-report.pdf")
 
 
 def set_column_mapping(upload_id: int, payload: ColumnMappingRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
@@ -853,7 +910,9 @@ def confirm_save_upload(
 def export_upload_errors(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     upload = db.get(DataUpload, upload_id)
     upload = ensure_tenant_access(upload, user, "Upload")
-    return {"success": True, "data": upload.errors or []}
+    errors = [{"row": row.row_number, "message": "; ".join(row.errors or []), "data": row.raw_data or {}}
+              for row in get_staged_rows(db, upload, "invalid")]
+    return error_excel_response(errors or upload.errors or [], f"import-errors-{upload_id}.xlsx")
 
 
 def get_upload_status(upload_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):

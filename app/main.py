@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -15,6 +16,8 @@ from app.services.permissions import backfill_owner_modules
 from app.socket.connection import set_socket_manager
 from app.middlewares.request_limits import RequestLimitMiddleware
 from app.middlewares.auth_rate_limit import AuthRateLimitMiddleware
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -80,13 +83,27 @@ def create_socket_app(fastapi_app: FastAPI, settings):
 
     @socket_manager.event
     async def connect(sid, environ, auth):  # noqa: ARG001
+        from app.services.socket_security import authorize_upload_socket
+        token = auth.get("token") if isinstance(auth, dict) else None
+        try:
+            await asyncio.to_thread(authorize_upload_socket, token)
+        except Exception:
+            return False
+        await socket_manager.save_session(sid, {"token": token})
         return True
 
     @socket_on("upload:subscribe")
     async def upload_subscribe(sid, payload):
-        upload_id = (payload or {}).get("uploadId")
+        upload_id = payload.get("uploadId") if isinstance(payload, dict) else None
         if not upload_id:
             await socket_manager.emit("upload:error", {"message": "uploadId is required"}, to=sid)
+            return
+        from app.services.socket_security import authorize_upload_socket
+        try:
+            session = await socket_manager.get_session(sid)
+            upload_id = await asyncio.to_thread(authorize_upload_socket, session.get("token"), upload_id)
+        except Exception:
+            await socket_manager.emit("upload:error", {"message": "Not authorized to access this upload"}, to=sid)
             return
         await socket_manager.enter_room(sid, f"upload:{upload_id}")
         await socket_manager.emit("upload:subscribed", {"uploadId": upload_id}, to=sid)
@@ -108,6 +125,7 @@ def create_app():
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Retry-After", "Content-Disposition"],
     )
 
     @fastapi_app.get("/health")
@@ -118,16 +136,21 @@ def create_app():
     def ready():
         from fastapi.responses import JSONResponse
         from sqlalchemy import text
+        dependency = "runtime_database"
         try:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
+            dependency = "control_database"
             with control_engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
             if settings.campaign_transport == "celery":
+                dependency = "redis"
                 from redis import Redis
                 Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2).ping()
             return {"success": True, "status": "ready"}
-        except Exception:
+        except Exception as error:
+            # Identify the failed dependency without logging URLs, credentials or SQL parameters.
+            logger.warning("Readiness dependency unavailable: %s (%s)", dependency, type(error).__name__)
             return JSONResponse({"success": False, "status": "unavailable"}, status_code=503)
 
     register_routers(fastapi_app)

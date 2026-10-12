@@ -125,7 +125,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_c
     return {"success": True, "token": token, "data": account_data(user, db)}
 
 
-def logout(response: Response, user: User = Depends(get_current_user)):
+def logout(response: Response):
     response.delete_cookie("token")
     return {"success": True, "message": "Logged out"}
 
