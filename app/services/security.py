@@ -116,8 +116,8 @@ def get_current_user(
 
     if not user.organization_id:
         raise HTTPException(403, "No business organization associated with this user")
-    user._authorization_iat = decoded.get("iat")
-    user._authorization_deadline = decoded["exp"]
+    setattr(user, "_authorization_iat", decoded.get("iat"))
+    setattr(user, "_authorization_deadline", decoded["exp"])
     from app.database.authorization import account_scope, actor_claims
     account_scope(db, user)
     authorize(tenant_db, "tenant", **actor_claims(user, db))

@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, text, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
+from context_contention_cases import ContextContentionCases
 
 
 def assert_sandbox():
@@ -35,7 +36,7 @@ def assert_sandbox():
 
 
 @unittest.skipUnless(os.environ.get('AUTHORIZATION_SANDBOX_MARKER') and os.environ.get('REQUIRE_RLS')=='true', 'Use the disposable authorization sandbox runner')
-class AuthorizationTests(unittest.TestCase):
+class AuthorizationTests(ContextContentionCases, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.operator=assert_sandbox()

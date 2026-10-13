@@ -1,5 +1,12 @@
 # Render authorization deployment
 
+For the context-lock correction, first complete the installation prerequisites
+below, then follow [CONTEXT_LOCK_CONTENTION_FIX.md](CONTEXT_LOCK_CONTENTION_FIX.md)
+to apply revision `f91c320ab008` before starting the updated application. The
+`f91c320ab007` commands below describe the original baseline installation; the
+updated startup check requires `f91c320ab008`. Retention is now separate operator
+maintenance, rather than part of authorization requests.
+
 The implementation uses separate `hanuram_runtime` and `hanuram_control` LOGIN
 roles, plus three NOLOGIN function owners. All are NOSUPERUSER and NOBYPASSRLS.
 Application tables retain ENABLE and FORCE ROW LEVEL SECURITY. This procedure has

@@ -132,7 +132,11 @@ def main():
                     user='sandbox_bootstrap',password=passwords['sandbox_bootstrap'],autocommit=True) as admin:
                 run_tests(admin, urls['sandbox_operator'],
                     {kind:env['DATABASE_AUTH_'+kind.upper()+'_KEY'] for kind in ('identity','staff','jobs')})
-            run([sys.executable,ROOT/'tests/security/test_authorization_roles.py'],cwd=ROOT,env=env)
+            run([sys.executable,ROOT/'tests/security/context_contention_cases.py'],cwd=ROOT,env=env)
+            run([sys.executable,'-m','alembic','upgrade','f91c320ab008'],cwd=ROOT,env=env)
+            # Bound regressions that would otherwise hang HTTP dependency setup.
+            test_env={**env, 'PGOPTIONS':'-c lock_timeout=5000 -c statement_timeout=15000'}
+            run([sys.executable,ROOT/'tests/security/test_authorization_roles.py'],cwd=ROOT,env=test_env)
             if args.legacy_tests:
                 legacy='authorization_legacy_test'
                 with psycopg.connect(host='127.0.0.1',port=port,dbname='postgres',user='sandbox_bootstrap',password=passwords['sandbox_bootstrap'],autocommit=True) as bootstrap:
