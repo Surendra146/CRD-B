@@ -53,12 +53,26 @@ def attempt_for(db, user, state, phase):
 def status(user: User = Depends(require_organization), db: Session = Depends(get_db)):
     settings = get_settings()
     configured = bool(settings.meta_app_id and settings.whatsapp_signup_config_id and settings.meta_app_secret and settings.whatsapp_token_encryption_key)
-    return {"success": True, "data": {**public_connection(get_connection(db, user)),
+    connection = get_connection(db, user)
+    public = public_connection(connection)
+    public['authorization_saved'] = public['connected']
+    if connection:
+        from app.models.saas import OnboardingRequest
+        import re
+        request = db.scalar(select(OnboardingRequest).where(OnboardingRequest.tenant_id == user.tenant_id,
+            OnboardingRequest.organization_id == user.organization_id,
+            OnboardingRequest.phone == re.sub(r'\D', '', connection.display_phone_number or '')
+        ).order_by(OnboardingRequest.created_at.desc()).limit(1))
+        if request and request.status != 'connected':
+            public['connected'] = False
+    return {"success": True, "data": {**public,
         "signup_configured": configured, "can_manage": user.role == "owner" and user.organization.owner_id == user.id}}
 
 
 @router.post("/start")
 def start(user: User = Depends(require_owner), db: Session = Depends(get_db)):
+    from app.services.onboarding import require_tenant_authorization
+    require_tenant_authorization(db, user)
     settings = require_signup_configuration()
     if settings.enforce_subscription:
         from app.services.billing import require_paid_subscription
@@ -74,6 +88,8 @@ def start(user: User = Depends(require_owner), db: Session = Depends(get_db)):
 
 @router.post("/exchange")
 def exchange(payload: ExchangeRequest, user: User = Depends(require_owner), db: Session = Depends(get_db)):
+    from app.services.onboarding import require_tenant_authorization
+    require_tenant_authorization(db, user)
     settings = require_signup_configuration()
     attempt = attempt_for(db, user, payload.state, "started")
     # Consume before contacting Meta. A failed exchange requires a new attempt.
@@ -96,6 +112,8 @@ def exchange(payload: ExchangeRequest, user: User = Depends(require_owner), db: 
 
 @router.post("/select")
 def select_phone(payload: SelectRequest, user: User = Depends(require_owner), db: Session = Depends(get_db)):
+    from app.services.onboarding import require_tenant_authorization
+    onboarding = require_tenant_authorization(db, user)
     require_signup_configuration()
     attempt = attempt_for(db, user, payload.state, "selecting")
     token = decrypt_token(attempt.encrypted_access_token, attempt.tenant_id, attempt.organization_id)
@@ -103,6 +121,9 @@ def select_phone(payload: SelectRequest, user: User = Depends(require_owner), db
     asset = next((a for a in assets if a["waba_id"] == payload.waba_id and a["phone_number_id"] == payload.phone_number_id), None)
     if not asset:
         raise HTTPException(403, "Meta has not authorized this phone number for the current connection attempt")
+    import re
+    if re.sub(r'\D', '', asset.get('display_phone_number') or '') != onboarding.phone:
+        raise HTTPException(409, 'Select the phone number approved in your setup request')
     connection = db.scalar(select(WhatsAppConnection).where(
         WhatsAppConnection.organization_id == user.organization_id,
         WhatsAppConnection.tenant_id == tenant_id_for_user(user),

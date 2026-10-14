@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -37,7 +38,8 @@ class ConsentPayload(StrictModel):
 
 
 class OnboardingPayload(StrictModel):
-    phone: str = Field(min_length=8, max_length=30)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    phone: str = Field(pattern=r"^[1-9]\d{7,14}$")
     business_name: str = Field(min_length=1, max_length=255)
 
 
@@ -75,7 +77,8 @@ def plans(user: User = Depends(require_organization), db: Session = Depends(get_
 @router.get("/subscription")
 def subscription(user: User = Depends(require_organization), db: Session = Depends(get_db)):
     row = billing.subscription_for(db, user)
-    return {"success": True, "data": public_subscription(row)}
+    from app.services.onboarding import eligibility
+    return {"success": True, "data": {**public_subscription(row), 'whatsapp_eligible': eligibility(db, user) is None} if row else None}
 
 
 @router.get("/invoices")
@@ -110,15 +113,35 @@ def onboarding(user: User = Depends(require_owner), db: Session = Depends(get_db
 
 @router.post("/onboarding")
 def request_onboarding(payload: OnboardingPayload, user: User = Depends(require_owner), db: Session = Depends(get_db)):
-    billing.require_paid_subscription(db, user)
-    from app.services.meta_whatsapp import normalize_phone
+    from app.services.onboarding import ACTIVE, record
+    db.scalar(select(Organization).where(Organization.id == user.organization_id,
+        Organization.tenant_id == user.tenant_id).with_for_update())
+    if db.scalar(scoped(OnboardingRequest, user).where(OnboardingRequest.status.in_(ACTIVE | {'connected', 'ready'}))):
+        raise HTTPException(409, 'An active or connected setup request already exists for this organization')
     row = OnboardingRequest(tenant_id=user.tenant_id, organization_id=user.organization_id,
-        phone=normalize_phone(payload.phone), business_name=payload.business_name, created_by=user.id)
+        phone=payload.phone, business_name=payload.business_name, created_by=user.id, status='requested')
+    record(row, user, 'requested')
     db.add(row)
     db.flush()
     audit(db, user, "whatsapp.onboarding.requested", row.id)
     db.commit()
     return {"success": True, "data": model_to_dict(row)}
+
+
+@router.post('/onboarding/{request_id}/verification-completed')
+def verification_completed(request_id: str, user: User = Depends(require_owner), db: Session = Depends(get_db)):
+    from app.services.onboarding import record
+    row = db.scalar(scoped(OnboardingRequest, user).where(OnboardingRequest.id == request_id).with_for_update())
+    if not row:
+        raise HTTPException(404, 'Onboarding request not found')
+    if row.status != 'action_required':
+        raise HTTPException(409, 'This request is not awaiting tenant action')
+    if not row.tenant_confirmed_at:
+        row.tenant_confirmed_at = datetime.now(UTC)
+        record(row, user, 'tenant_confirmation')
+        audit(db, user, 'whatsapp.onboarding.verification_completed', row.id)
+        db.commit()
+    return {'success': True, 'data': model_to_dict(row)}
 
 
 @router.get("/messages")

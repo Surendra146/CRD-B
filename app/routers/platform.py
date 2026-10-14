@@ -114,10 +114,18 @@ def cancel_subscription(tenant_id: int, organization_id: int, payload: Cancellat
 
 
 class OnboardingUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    status: str = Field(pattern=r"^(needs_customer_action|provider_review|billing_pending|ready|rejected)$")
-    customer_message: str = Field(min_length=1, max_length=2000)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    status: str = Field(pattern=r"^(accepted|setup_in_progress|action_required|connected|rejected|failed|cancelled)$")
+    customer_message: str | None = Field(default=None, min_length=1, max_length=2000)
+    required_action: str | None = None
     provider_reference: str | None = Field(default=None, max_length=255)
+
+
+class VerificationPayload(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    test_phone: str = Field(pattern=r'^[1-9]\d{7,14}$')
+    template_name: str = Field(pattern=r'^[a-z0-9_]{1,512}$')
+    language: str = Field(pattern=r'^[a-z]{2,3}(?:_[A-Z]{2})?$')
 
 
 class UsagePayload(BaseModel):
@@ -193,30 +201,56 @@ def create_plan(payload: PlanPayload, user: User = Depends(staff_permission("pla
 
 @router.get("/onboarding")
 def onboarding(user: User = Depends(staff_permission("onboarding.manage")), db: Session = Depends(get_control_db)):
+    from app.services.onboarding import public_request
     staff_scope(db, user, "onboarding.manage")
-    return {"success": True, "data": [model_to_dict(row) for row in db.scalars(select(OnboardingRequest).order_by(OnboardingRequest.created_at.desc()).limit(200))]}
+    rows = db.scalars(select(OnboardingRequest).order_by(OnboardingRequest.created_at.desc())).all()
+    data = []
+    for row in rows:
+        staff_scope(db, user, 'onboarding.manage', target_tenant=row.tenant_id, target_org=row.organization_id)
+        from app.models import Organization
+        org = db.get(Organization, row.organization_id)
+        tenant = db.get(Tenant, row.tenant_id)
+        data.append({**public_request(db, row), 'tenant_name': tenant.name if tenant else str(row.tenant_id),
+                     'organization_name': org.name if org else str(row.organization_id)})
+    return {"success": True, "data": data}
 
 
 @router.patch("/onboarding/{request_id}")
 def update_onboarding(request_id: str, payload: OnboardingUpdate, user: User = Depends(staff_permission("onboarding.manage")), db: Session = Depends(get_control_db)):
+    from app.services.onboarding import locked, transition
     staff_scope(db, user, "onboarding.manage", resource=request_id, action="platform.onboarding.updated")
     row = db.get(OnboardingRequest, request_id)
     if not row:
         raise HTTPException(404, "Onboarding request not found")
     staff_scope(db, user, "onboarding.manage", resource=request_id, action="platform.onboarding.updated",
                 target_tenant=row.tenant_id, target_org=row.organization_id)
-    if payload.status == "ready":
-        connected = db.execute(select(WhatsAppConnection.id, WhatsAppConnection.token_expires_at).where(WhatsAppConnection.tenant_id == row.tenant_id, WhatsAppConnection.organization_id == row.organization_id)).first()
-        if not connected or not payload.provider_reference:
-            raise HTTPException(409, "Customer authorization and a verified provider billing reference are required")
-        if connected.token_expires_at and connected.token_expires_at <= datetime.now(UTC).replace(tzinfo=None):
-            raise HTTPException(409, "The customer WhatsApp authorization has expired")
-    row.status = payload.status
-    row.customer_message = payload.customer_message
-    row.provider_reference = payload.provider_reference
-    audit(db, user, "platform.onboarding.updated", row.id, {"status": payload.status})
+    row = locked(db, request_id)
+    transition(db, row, user, payload.status, payload.customer_message, payload.required_action)
     db.commit()
     return {"success": True, "data": model_to_dict(row)}
+
+
+@router.post('/onboarding/{request_id}/verify')
+def verify_onboarding(request_id: str, payload: VerificationPayload,
+        user: User = Depends(staff_permission('onboarding.manage')), db: Session = Depends(get_control_db)):
+    from app.services.onboarding import locked, verify
+    staff_scope(db, user, 'onboarding.manage', resource=request_id, action='platform.onboarding.updated')
+    row = db.get(OnboardingRequest, request_id)
+    if not row:
+        raise HTTPException(404, 'Onboarding request not found')
+    staff_scope(db, user, 'onboarding.manage', resource=request_id, action='platform.onboarding.updated',
+                target_tenant=row.tenant_id, target_org=row.organization_id, test_phone=payload.test_phone)
+    row = locked(db, request_id)
+    try:
+        verify(db, row, user, payload)
+    except HTTPException:
+        # Save only a safe diagnostic; no provider bodies, access tokens or credentials.
+        row.verification = {'result': 'failed', 'checked_at': datetime.now(UTC).isoformat()}
+        audit(db, user, 'platform.onboarding.updated', row.id, {'verification': 'failed'})
+        db.commit()
+        raise
+    db.commit()
+    return {'success': True, 'data': model_to_dict(row)}
 
 
 @router.post("/usage")

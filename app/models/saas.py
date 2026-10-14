@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -118,6 +118,8 @@ class ConsentEvent(Base):
 
 class OnboardingRequest(Base, TimestampMixin):
     __tablename__ = "onboarding_requests"
+    __table_args__ = (Index('uq_onboarding_active_org', 'organization_id', unique=True,
+        postgresql_where=text("status IN ('requested','accepted','setup_in_progress','action_required','connected')")),)
     id: Mapped[str] = mapped_column(String(80), primary_key=True, default=identifier)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
@@ -127,6 +129,18 @@ class OnboardingRequest(Base, TimestampMixin):
     customer_message: Mapped[str | None] = mapped_column(Text)
     provider_reference: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    assigned_admin_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    required_action: Mapped[str | None] = mapped_column(String(40))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    setup_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    action_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tenant_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    history: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    verification: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
 
 class MessageRecord(Base, TimestampMixin):

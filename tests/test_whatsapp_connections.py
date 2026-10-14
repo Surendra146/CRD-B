@@ -13,7 +13,7 @@ from app.routers.whatsapp_connections import attempt_for, ExchangeRequest
 
 @pytest.fixture
 def config(monkeypatch):
-    config = SimpleNamespace(whatsapp_token_encryption_key=Fernet.generate_key().decode(), meta_app_secret="private-secret", meta_app_id="111", whatsapp_signup_config_id="222", whatsapp_graph_version="v23.0")
+    config = SimpleNamespace(whatsapp_token_encryption_key=Fernet.generate_key().decode(), meta_app_secret="private-secret", meta_app_id="111", whatsapp_signup_config_id="222", whatsapp_graph_version="v23.0", enforce_subscription=True)
     monkeypatch.setattr(connections, "get_settings", lambda: config)
     return config
 
@@ -43,18 +43,20 @@ def test_missing_tenant_connection_never_uses_render_sender(config):
         meta_whatsapp.send_message("9000000000", "Hello")
 
 
-def test_resolver_uses_only_the_selected_tenant_credentials(config):
-    row = SimpleNamespace(tenant_id=1, organization_id=2, phone_number_id="333", encrypted_access_token=connections.encrypt_token("tenant-token", 1, 2), token_expires_at=None)
+def test_resolver_uses_only_the_selected_tenant_credentials(config, monkeypatch):
+    from app.services import billing
+    monkeypatch.setattr(billing, 'number_limit', lambda db, user: 1)
+    row = SimpleNamespace(tenant_id=1, organization_id=2, phone_number_id="333", encrypted_access_token=connections.encrypt_token("tenant-token", 1, 2), token_expires_at=None, display_phone_number='+919000000000')
     class DB:
         def scalar(self, query):
             params = query.compile().params
             assert params["tenant_id_1"] == 1
             assert params["organization_id_1"] == 2
-            return row
+            return row if 'whatsapp_connections' in str(query) else None
     resolved = connections.resolve_credentials(DB(), SimpleNamespace(tenant_id=1, organization_id=2))
     assert resolved.whatsapp_phone_number_id == "333"
     assert resolved.whatsapp_access_token == "tenant-token"
-    assert "tenant-token" not in json.dumps(connections.public_connection(SimpleNamespace(**row.__dict__, waba_id="444", display_phone_number="+919000000000", verified_name="Business")))
+    assert "tenant-token" not in json.dumps(connections.public_connection(SimpleNamespace(**row.__dict__, waba_id="444", verified_name="Business")))
 
 
 def test_expired_connection_requires_reauthorization(config):

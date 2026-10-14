@@ -85,7 +85,7 @@ def test_opt_in_requires_evidence_and_stop_prevents_send(client, account, db_ses
         assert_send_allowed(db_session, account["user"]["tenantId"], account["user"]["organizationId"], "9000000000", {"name": "approved"})
 
 
-def test_onboarding_requires_subscription_and_never_accepts_api_token(client, account, paid):
-    payload = {"phone": "9000000000", "business_name": "Customer company"}
+def test_onboarding_can_be_requested_before_subscription_and_never_accepts_api_token(client, account):
+    payload = {"phone": "919000000000", "business_name": "Customer company"}
     assert client.post("/api/saas/onboarding", headers=account["headers"], json=payload).status_code == 200
     assert client.post("/api/saas/onboarding", headers=account["headers"], json={**payload, "access_token": "secret"}).status_code == 422

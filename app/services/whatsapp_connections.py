@@ -62,6 +62,20 @@ def resolve_credentials(db, user, phone_number_id=None):
         raise HTTPException(409, "Connect your organization's WhatsApp Business account in Settings first")
     if connection.token_expires_at and connection.token_expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
         raise HTTPException(409, "Your WhatsApp connection has expired. Reconnect it in Settings")
+    from app.models.saas import OnboardingRequest
+    from app.services.onboarding import require_eligible
+    request = db.scalar(select(OnboardingRequest).where(OnboardingRequest.tenant_id == connection.tenant_id,
+        OnboardingRequest.organization_id == connection.organization_id,
+        OnboardingRequest.phone == re.sub(r'\D', '', connection.display_phone_number or '')
+    ).order_by(OnboardingRequest.created_at.desc()).limit(1))
+    if request:
+        if request.status != 'connected':
+            raise HTTPException(409, 'An administrator must verify and activate this WhatsApp connection first')
+        require_eligible(db, request)
+    elif get_settings().enforce_subscription:
+        # Existing verified connections remain available subject to the same subscription gate.
+        from app.services.billing import number_limit
+        number_limit(db, user)
     return SimpleNamespace(
         whatsapp_provider="meta_cloud",
         whatsapp_graph_version=get_settings().whatsapp_graph_version,

@@ -86,13 +86,17 @@ def test_mismatched_target_scope_never_writes(client, account, account_factory, 
     assert db_session.scalar(select(AuditEvent).where(AuditEvent.action.like("platform.subscription.%"))) is None
 
 
-def test_future_assignment_blocks_onboarding_and_entitlements(client, account, db_session, plan):
+def test_future_assignment_allows_request_but_blocks_acceptance_and_entitlements(client, account, db_session, plan):
     grant(db_session, account)
     now = datetime.now(UTC)
     data = assignment(plan, current_start=(now + timedelta(days=1)).isoformat())
     response = client.post(url(account, "assign"), headers=account["headers"], json=data)
     assert response.json()["data"]["effective_status"] == "scheduled"
-    assert client.post("/api/saas/onboarding", headers=account["headers"], json={"phone": "9000000000", "business_name": "Future"}).status_code == 402
+    requested = client.post("/api/saas/onboarding", headers=account["headers"], json={"phone": "919000000000", "business_name": "Future"})
+    assert requested.status_code == 200
+    rejected = client.patch('/api/platform/onboarding/' + requested.json()['data']['id'], headers=account['headers'], json={'status':'accepted'})
+    # This fixture has subscription permissions only, never onboarding authority.
+    assert rejected.status_code == 403
     with pytest.raises(HTTPException) as error:
         billing.number_limit(db_session, user_for(account))
     assert error.value.status_code == 402

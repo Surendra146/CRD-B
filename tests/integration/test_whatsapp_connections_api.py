@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import io
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.fernet import Fernet
@@ -28,7 +29,19 @@ def meta_setup(monkeypatch):
     return assets
 
 
-def prepare(client, account):
+def prepare(client, account, db_session):
+    from app.models.saas import OnboardingRequest, Subscription, SubscriptionPlan
+    if not db_session.get(SubscriptionPlan, 'onboarding_test'):
+        db_session.add(SubscriptionPlan(id='onboarding_test', name='Test', amount_minor=100,
+            currency='INR', interval='monthly', total_cycles=1, entitlements={'whatsapp_numbers':1}))
+        db_session.flush()
+    scope = {'tenant_id':account['user']['tenant_id'], 'organization_id':account['user']['organization_id']}
+    if not db_session.query(Subscription).filter_by(**scope).first():
+        db_session.add(Subscription(**scope, plan_id='onboarding_test', status='active',
+            current_start=datetime.now(UTC)-timedelta(days=1), current_end=datetime.now(UTC)+timedelta(days=1)))
+        db_session.add(OnboardingRequest(**scope, business_name='Business', phone='919000000000',
+            status='action_required', required_action='meta_authorization', created_by=account['user']['id']))
+        db_session.commit()
     start = client.post('/api/whatsapp-connection/start', headers=account['headers'])
     assert start.status_code == 200, start.text
     state = start.json()['data']['state']
@@ -39,13 +52,21 @@ def prepare(client, account):
 
 
 def test_connection_flow_is_private_and_sends_use_tenant_credentials(client, account, meta_setup, monkeypatch, db_session):
-    state = prepare(client, account)
+    state = prepare(client, account, db_session)
     selected = client.post('/api/whatsapp-connection/select', headers=account['headers'], json={'state': state, 'waba_id': '444', 'phone_number_id': '333'})
     assert selected.status_code == 200, selected.text
-    assert selected.json()['data']['connected'] is True
+    assert selected.json()['data']['connected'] is True  # Select returns provider authorization; status API gates activation.
+    status = client.get('/api/whatsapp-connection/', headers=account['headers']).json()['data']
+    assert status['connected'] is False and status['authorization_saved'] is True
     assert 'tenant-token' not in selected.text
     row = db_session.query(WhatsAppConnection).filter_by(organization_id=account['user']['organization_id']).one()
     assert row.encrypted_access_token != 'tenant-token'
+    provisional = client.post('/api/communications/whatsapp', headers=account['headers'], json={'phone':'9000000000','message':'Hello'})
+    assert provisional.status_code == 409
+    # Activation itself is exercised in the managed onboarding/security tests.
+    from app.models.saas import OnboardingRequest
+    db_session.query(OnboardingRequest).filter_by(organization_id=account['user']['organization_id']).one().status = 'connected'
+    db_session.commit()
     def provider(request, timeout):
         assert '/333/messages' in request.full_url
         assert request.get_header('Authorization') == 'Bearer tenant-token'
@@ -58,21 +79,22 @@ def test_connection_flow_is_private_and_sends_use_tenant_credentials(client, acc
     assert client.post('/api/communications/whatsapp', headers=account['headers'], json={'phone': '9000000000', 'message': 'Hello'}).status_code == 409
 
 
-def test_other_tenant_cannot_reuse_attempt_or_claim_connected_sender(client, account, account_factory, meta_setup):
+def test_other_tenant_cannot_reuse_attempt_or_claim_connected_sender(client, account, account_factory, meta_setup, db_session):
     other = account_factory()
-    state = prepare(client, account)
+    state = prepare(client, account, db_session)
+    prepare(client, other, db_session)
     response = client.post('/api/whatsapp-connection/select', headers=other['headers'], json={'state': state, 'waba_id': '444', 'phone_number_id': '333'})
     assert response.status_code == 400
     own = client.post('/api/whatsapp-connection/select', headers=account['headers'], json={'state': state, 'waba_id': '444', 'phone_number_id': '333'})
     assert own.status_code == 200
     assert client.get('/api/whatsapp-connection/', headers=other['headers']).json()['data']['connected'] is False
-    other_state = prepare(client, other)
+    other_state = prepare(client, other, db_session)
     conflict = client.post('/api/whatsapp-connection/select', headers=other['headers'], json={'state': other_state, 'waba_id': '444', 'phone_number_id': '333'})
     assert conflict.status_code == 409
 
 
-def test_code_cannot_be_replayed_and_ungranted_phone_is_rejected(client, account, meta_setup):
-    state = prepare(client, account)
+def test_code_cannot_be_replayed_and_ungranted_phone_is_rejected(client, account, meta_setup, db_session):
+    state = prepare(client, account, db_session)
     assert client.post('/api/whatsapp-connection/exchange', headers=account['headers'], json={'state': state, 'code': 'one-use-code'}).status_code == 400
     assert client.post('/api/whatsapp-connection/select', headers=account['headers'], json={'state': state, 'waba_id': '444', 'phone_number_id': '999'}).status_code == 403
 

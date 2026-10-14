@@ -428,5 +428,102 @@ class AuthorizationTests(ContextContentionCases, unittest.TestCase):
             self.assertEqual(db.scalar(text("SELECT status FROM message_records WHERE provider_message_id='sandbox_message'")),'read')
 
 
+    def test_27_managed_onboarding_subscription_gate_and_verified_activation(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from app.routers.auth import register
+        from app.schemas.auth import RegisterRequest
+        from app.routers.saas import request_onboarding, OnboardingPayload, verification_completed
+        from app.routers.platform import update_onboarding, OnboardingUpdate, verify_onboarding, VerificationPayload, AssignmentPayload
+        from app.services.manual_subscriptions import operate
+        from app.services import onboarding
+        from app.services.whatsapp_connections import encrypt_token, resolve_credentials
+        from app.models import User, WhatsAppConnection
+        from app.models.saas import OnboardingRequest, ContactConsent
+        from app.config.settings import get_settings
+        from fastapi import HTTPException
+        with Session(self.control) as db:
+            account = register(RegisterRequest(email='onboarding@sandbox.invalid', password='Test-only-password!', name='Onboarding'), db)['data']
+        with Session(self.runtime) as db:
+            self.tenant(db, account)
+            row = request_onboarding(OnboardingPayload(phone='919000000002', business_name='Onboarding business'), db.get(User,account['id']), db)['data']
+        def update(status, **values):
+            with Session(self.control) as db:
+                return update_onboarding(row['id'], OnboardingUpdate(status=status, **values), self.actor(db,self.staff), db)
+        with self.assertRaises(HTTPException) as blocked:
+            update('accepted')
+        self.assertEqual(blocked.exception.detail['code'], 'SUBSCRIPTION_NOT_FOUND')
+        with Session(self.runtime) as db:
+            self.tenant(db,account)
+            self.assertEqual(db.get(OnboardingRequest,row['id']).status,'requested')
+            with self.assertRaises(HTTPException):
+                request_onboarding(OnboardingPayload(phone='919000000002',business_name='Duplicate'),db.get(User,account['id']),db)
+        with Session(self.control) as db:
+            operate(db,self.actor(db,self.staff),account['tenant_id'],account['organization_id'],'assign',
+                AssignmentPayload(request_id=uuid4(),reason='Onboarding test',plan_id='sandbox_monthly',
+                    current_start=datetime.now(UTC)-timedelta(days=1),current_end=datetime.now(UTC)+timedelta(days=1)))
+        def accept(_):
+            try: update('accepted'); return 'accepted'
+            except HTTPException as error: return error.detail['code']
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(accept,range(2)))
+        self.assertCountEqual(results,['accepted','INVALID_TRANSITION'])
+        update('setup_in_progress')
+        update('action_required',customer_message='Authorize the approved business number',required_action='meta_authorization')
+        with Session(self.runtime) as db:
+            self.tenant(db,account)
+            actor=db.get(User,account['id'])
+            verification_completed(row['id'],actor,db)
+            connection=WhatsAppConnection(tenant_id=account['tenant_id'],organization_id=account['organization_id'],
+                waba_id='444555',phone_number_id='333555',display_phone_number='+919000000002',
+                encrypted_access_token=encrypt_token('test-only-token',account['tenant_id'],account['organization_id']),
+                connected_by=account['id'],is_default=True)
+            db.add(connection)
+            db.add(ContactConsent(tenant_id=account['tenant_id'],organization_id=account['organization_id'],phone='919000000003',opted_in=True))
+            db.commit()
+            with self.assertRaises(HTTPException): resolve_credentials(db,actor)
+        update('setup_in_progress')
+        def graph(path,*args,**kwargs):
+            if path.endswith('/subscribed_apps'): return {'data':[{'whatsapp_business_api_data':{'id':'111'}}]}
+            if path.endswith('/subscriptions'): return {'data':[{'object':'whatsapp_business_account','active':True,'fields':[{'name':'messages'}]}]}
+            return {'messages':[{'id':'wamid.onboarding.test'}]}
+        assets=[{'waba_id':'444555','phone_number_id':'333555','display_phone_number':'+919000000002'}]
+        with patch.object(get_settings(),'meta_app_id','111'),patch.object(onboarding,'authorized_assets',return_value=(assets,None)),patch.object(onboarding,'graph',side_effect=graph):
+            with Session(self.control) as db:
+                verified=verify_onboarding(row['id'],VerificationPayload(test_phone='919000000003',template_name='approved_test',language='en_US'),self.actor(db,self.staff),db)
+                self.assertEqual(verified['data']['verification']['test_result'],'accepted')
+            with self.assertRaises(HTTPException) as waiting: update('connected')
+            self.assertEqual(waiting.exception.detail['code'],'TEST_DELIVERY_REQUIRED')
+            import hashlib,hmac
+            from fastapi.testclient import TestClient
+            from app.main import create_app
+            body=json.dumps({'object':'whatsapp_business_account','entry':[{'id':'444555','changes':[{'value':{
+                'metadata':{'phone_number_id':'333555'},'statuses':[{'id':'wamid.onboarding.test','status':'delivered','timestamp':str(int(time.time()))}]}}]}]}).encode()
+            signature='sha256='+hmac.new(get_settings().meta_app_secret.encode(),body,hashlib.sha256).hexdigest()
+            with TestClient(create_app()) as client:
+                result=client.post('/api/webhooks/whatsapp',content=body,headers={'x-hub-signature-256':signature})
+                self.assertEqual(result.status_code,200,result.text)
+            self.assertEqual(update('connected')['data']['status'],'connected')
+        with Session(self.runtime) as db:
+            self.tenant(db,account)
+            self.assertEqual(resolve_credentials(db,db.get(User,account['id'])).whatsapp_phone_number_id,'333555')
+            self.assertEqual(len(db.get(OnboardingRequest,row['id']).history),8)
+        from app.routers.platform import onboarding as queue
+        with Session(self.control) as db:
+            listed=queue(self.actor(db,self.staff),db)['data']
+            item=next(item for item in listed if item['id']==row['id'])
+            self.assertEqual(item['subscription_status'],'active')
+            self.assertEqual(item['status'],'connected')
+            self.assertIn('tenant_name',item)
+            self.assertNotIn('encrypted_access_token',json.dumps(item))
+        # Onboarding staff can read billing for their selected organization but cannot change it.
+        from app.database.authorization import staff_scope
+        with Session(self.control) as db:
+            actor=self.actor(db,self.staff)
+            staff_scope(db,actor,'onboarding.manage',target_tenant=account['tenant_id'],target_org=account['organization_id'],resource=row['id'],action='platform.onboarding.updated')
+            self.assertEqual(db.execute(text("UPDATE subscriptions SET status='cancelled'")).rowcount,0)
+
+
 if __name__=='__main__':
     unittest.main(verbosity=2)
