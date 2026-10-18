@@ -23,3 +23,5 @@ class WhatsAppTemplate(Base, TimestampMixin):
     targeting: Mapped[dict] = mapped_column(JSONB, default=dict)
     stats: Mapped[dict] = mapped_column(JSONB, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Server-owned snapshots. Existing content remains the editable local draft.
+    workflow: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)

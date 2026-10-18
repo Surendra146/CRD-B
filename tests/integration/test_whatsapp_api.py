@@ -59,7 +59,7 @@ def test_scheduled_send_rejects_past_time(client, account):
 def test_scheduled_job_waits_then_dispatches_once(client, account, monkeypatch, db_session, session_factory):
     from datetime import datetime, timezone, timedelta
     from cryptography.fernet import Fernet
-    from app.models import WhatsAppConnection, WhatsAppBulkJob
+    from app.models import WhatsAppConnection, WhatsAppBulkJob, WhatsAppTemplate
     from app.services.whatsapp_connections import encrypt_token
     from app.services.whatsapp_scheduler import dispatch_due_job
     settings = get_settings()
@@ -67,6 +67,9 @@ def test_scheduled_job_waits_then_dispatches_once(client, account, monkeypatch, 
     tenant_id = account["user"]["tenant_id"]
     org_id = account["user"]["organization_id"]
     db_session.add(WhatsAppConnection(tenant_id=tenant_id, organization_id=org_id, waba_id="999", phone_number_id="123", encrypted_access_token=encrypt_token("test-token", tenant_id, org_id), connected_by=account["user"]["id"]))
+    db_session.add(WhatsAppTemplate(tenant_id=tenant_id, organization_id=org_id, name='Hello', category='UTILITY',
+        whatsapp_template_name='hello_world', targeting={'waba_id': '999', 'meta_id': '888'}, stats={'meta_status': 'APPROVED'},
+        content={'language': 'en_US', 'components': [{'type': 'BODY', 'text': 'Hello world'}]}))
     db_session.commit()
     calls = []
     def send(*args, **kwargs):
@@ -89,6 +92,6 @@ def test_scheduled_job_waits_then_dispatches_once(client, account, monkeypatch, 
     db_session.commit()
     assert dispatch_due_job(session_factory) is True
     assert dispatch_due_job(session_factory) is False
-    assert calls == [{"name": "hello_world", "language": {"code": "en_US"}}]
+    assert calls == [{"name": "hello_world", "language": {"code": "en_US"}, 'components': []}]
     db_session.refresh(job)
     assert job.recipients_summary[0]["status"] == "accepted"

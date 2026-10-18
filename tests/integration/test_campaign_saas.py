@@ -44,7 +44,7 @@ def test_campaign_launch_queues_once_and_pause_resume_preserve_outbox(client, ac
     monkeypatch.setattr(communications, 'require_configuration', lambda *args: None)
     tenant, org = account['user']['tenantId'], account['user']['organizationId']
     template = WhatsAppTemplate(tenant_id=tenant, organization_id=org, name='hello', category='MARKETING',
-        whatsapp_template_name='hello', content={'language': 'en'}, targeting={'waba_id': '444'},
+        whatsapp_template_name='hello', content={'language': 'en', 'components': [{'type': 'BODY', 'text': 'Hello there'}]}, targeting={'waba_id': '444'},
         stats={'meta_status': 'APPROVED'}, is_active=True)
     db_session.add(template)
     db_session.flush()
@@ -81,4 +81,10 @@ def test_template_editor_cannot_forge_or_modify_meta_approval(client, account, d
         name='synced', category='MARKETING', targeting={'meta_id': '123', 'waba_id': '444'}, stats={'meta_status': 'APPROVED'})
     db_session.add(row)
     db_session.commit()
-    assert client.put(f'/api/templates/{row.id}', headers=account['headers'], json={'content': {'language': 'different'}}).status_code == 409
+    response = client.put(f'/api/templates/{row.id}', headers=account['headers'], json={'content': {'language': 'different'}})
+    assert response.status_code == 200
+    db_session.refresh(row)
+    assert row.content['language'] == 'different'
+    assert row.stats['meta_status'] == 'APPROVED'
+    assert row.workflow['approved']['meta_id'] == '123'
+    assert row.workflow['approved']['language'] != 'different'

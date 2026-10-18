@@ -178,11 +178,18 @@ def launch_campaign(campaign_id: int, user: User = Depends(require_organization)
     elif audience.get("type") not in {None, "all"}:
         raise HTTPException(400, "Unsupported campaign audience")
     customers = db.scalars(statement).all()
+    from app.services.template_workflow import approved_definition
+    definition = approved_definition(template)
+    if not definition:
+        raise HTTPException(409, 'Select an approved template')
     campaign.status = "running"
     payload = WhatsAppBulkSendRequest.model_validate({
         "title": campaign.name, "audience_type": "custom_numbers",
-        "audience": {"campaign_id": campaign.id, "numbers": [{"phone": c.phone, "name": c.name} for c in customers]},
-        "template": {"name": template.whatsapp_template_name, "language": {"code": (template.content or {}).get("language")}},
+        "audience": {"campaign_id": campaign.id, "numbers": [{"phone": c.phone, "name": c.name, 'email': c.email,
+                     'lifecycle': c.lifecycle or {}, 'demographics': c.demographics or {}} for c in customers]},
+        "template": {"id": template.id, 'media_asset_id': audience.get('template_media_asset_id'),
+                     'mappings': audience.get('template_mappings') or {}},
+        'sender_phone_number_id': audience.get('sender_phone_number_id') or definition.get('sender_phone_number_id'),
         "scheduled_at": validate_campaign_schedule(campaign.schedule or {}).get("scheduledAt"),
     })
     try:

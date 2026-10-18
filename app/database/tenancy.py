@@ -63,7 +63,7 @@ def verify_authorization_installation(connection, expected_login):
     for schema in ('public','hanuram_auth','hanuram_crypto'):
         if connection.scalar(text("SELECT has_schema_privilege(current_user,:schema,'CREATE')"),{'schema':schema}):
             raise RuntimeError('Application logins must not create objects in trusted schemas')
-    if connection.scalar(text("SELECT version_num FROM public.alembic_version")) != 'f91c320ab009':
+    if connection.scalar(text("SELECT version_num FROM public.alembic_version")) != 'f91c320ab010':
         raise RuntimeError('Install the reviewed authorization migrations before startup')
     for table in ('platform_staff','subscription_plans'):
         if not connection.scalar(text('SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid=to_regclass(:table)'), {'table': table}):

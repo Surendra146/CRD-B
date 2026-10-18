@@ -2,9 +2,17 @@
 -- This does not contain passwords, signing keys, or application data.
 -- PostgreSQL 18; both application logins must already exist.
 BEGIN;
-DO $$ BEGIN
-    IF current_database() <> 'hanuram_production' THEN
-        RAISE EXCEPTION 'Wrong database: expected hanuram_production, got %', current_database();
+DO $$
+DECLARE expected_database text:=coalesce(nullif(current_setting('hanuram_setup.expected_database',true),''),'hanuram_production');
+BEGIN
+    IF expected_database NOT IN ('hanuram_production','hanuram_dev') THEN
+        RAISE EXCEPTION 'Unsupported setup database';
+    END IF;
+    IF current_database() <> expected_database THEN
+        RAISE EXCEPTION 'Wrong database: expected %, got %', expected_database, current_database();
+    END IF;
+    IF expected_database='hanuram_dev' AND session_user<>'hanuram_dev_user' THEN
+        RAISE EXCEPTION 'Local setup requires a direct hanuram_dev_user operator connection';
     END IF;
     IF current_setting('server_version_num')::integer NOT BETWEEN 180000 AND 189999 THEN
         RAISE EXCEPTION 'This operator script requires PostgreSQL 18';

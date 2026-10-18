@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 
-def provision_keys(connection, secrets):
+def provision_keys(connection, secrets, *, local_development=False):
     """Insert initial keys within the caller's transaction; never rotate keys."""
     if set(secrets) != {'identity','staff','jobs'} or any(
         len(value)<32 for value in secrets.values()
@@ -16,10 +16,12 @@ def provision_keys(connection, secrets):
     database, session, current = connection.execute(text(
         'SELECT current_database(), session_user, current_user'
     )).one()
-    if database != 'hanuram_production':
-        raise RuntimeError('Expected database hanuram_production')
-    if session != 'hanuram_production_user' or current != session:
-        raise RuntimeError('Connect directly as hanuram_production_user before SET ROLE')
+    expected_database = 'hanuram_dev' if local_development else 'hanuram_production'
+    expected_operator = 'hanuram_dev_user' if local_development else 'hanuram_production_user'
+    if database != expected_database:
+        raise RuntimeError(f'Expected database {expected_database}')
+    if session != expected_operator or current != session:
+        raise RuntimeError(f'Connect directly as {expected_operator} before SET ROLE')
     owner = connection.scalar(text(
         "SELECT oid FROM pg_roles WHERE rolname='hanuram_identity_owner'"
     ))
@@ -55,21 +57,28 @@ def provision_keys(connection, secrets):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply',action='store_true',help='Explicitly store the three keys in the selected database')
+    parser.add_argument('--local-development',action='store_true',help='Use localhost hanuram_dev with the hanuram_dev_user operator; production defaults remain unchanged')
     args=parser.parse_args()
     if not args.apply:
         parser.error('Review the deployment guide, then explicitly supply --apply')
     raw=os.environ.get('OPERATOR_DATABASE_URL')
     if not raw:
         parser.error('Set a separate OPERATOR_DATABASE_URL in the process environment')
+    try:
+        url=make_url(raw.replace('postgres://','postgresql://',1)).set(drivername='postgresql+psycopg')
+    except Exception:
+        parser.error('OPERATOR_DATABASE_URL must be a valid PostgreSQL URL')
+    if args.local_development and (url.host not in {'127.0.0.1','localhost','::1'} or url.database!='hanuram_dev' or url.username!='hanuram_dev_user'):
+        parser.error('Local provisioning requires a localhost hanuram_dev URL using hanuram_dev_user')
     secrets={kind:getpass.getpass('Matching DATABASE_AUTH_'+kind.upper()+'_KEY (hidden): ')
              for kind in ('identity','staff','jobs')}
     if any(len(value)<32 for value in secrets.values()) or len(set(secrets.values()))!=3:
         parser.error('Use three distinct random keys, each at least 32 characters')
     engine=None
     try:
-        engine=create_engine(make_url(raw.replace('postgres://','postgresql://',1)).set(drivername='postgresql+psycopg'),hide_parameters=True,echo=False)
+        engine=create_engine(url,hide_parameters=True,echo=False)
         with engine.begin() as connection:
-            provision_keys(connection, secrets)
+            provision_keys(connection, secrets, local_development=args.local_development)
         print('Stored the three keys. No key values were printed.')
     except Exception:
         raise SystemExit('Initial key provisioning failed; transaction rolled back. Check database, operator, installation, SET ROLE access, and existing keys. Rotation requires a separate procedure.') from None

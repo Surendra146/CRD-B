@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,13 +18,22 @@ def get_templates(user: User = Depends(require_organization), db: Session = Depe
         .where(WhatsAppTemplate.tenant_id == tenant_id_for_user(user), WhatsAppTemplate.organization_id == user.organization_id)
         .order_by(WhatsAppTemplate.created_at.desc())
     ).all()
-    return {"success": True, "data": [model_to_dict(row) for row in rows]}
+    return {"success": True, "data": [template_public(row) for row in rows]}
+
+
+def template_public(row):
+    from app.services.template_workflow import approved_definition
+    data = model_to_dict(row)
+    approved = approved_definition(row)
+    if approved:
+        data['workflow'] = {**(row.workflow or {}), 'approved': approved}
+    return data
 
 
 def get_template(template_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     template = db.get(WhatsAppTemplate, template_id)
     ensure_tenant_access(template, user, "Template")
-    return {"success": True, "data": model_to_dict(template)}
+    return {"success": True, "data": template_public(template)}
 
 
 def create_template(payload: TemplateCreateRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
@@ -51,9 +61,18 @@ def update_template(template_id: int, payload: TemplateUpdateRequest, user: User
     payload_data = payload.to_payload()
     template = db.get(WhatsAppTemplate, template_id)
     ensure_tenant_access(template, user, "Template")
-    if (template.targeting or {}).get("meta_id"):
-        raise HTTPException(409, "Synced WhatsApp templates must be updated through Meta and synchronized")
-    apply_payload(template, payload_data, {"whatsappTemplateName": "whatsapp_template_name", "isActive": "is_active"})
+    from app.services.template_workflow import owned
+    template = owned(db, user, template_id, lock=True)
+    from app.services.template_workflow import approved_definition
+    legacy = approved_definition(template)
+    if legacy and not (template.workflow or {}).get('approved'):
+        template.workflow = {**(template.workflow or {}), 'approved': legacy}
+    if (template.workflow or {}).get('approved') or (template.targeting or {}).get('meta_id'):
+        payload_data.pop('whatsappTemplateName', None)
+        payload_data.pop('isActive', None)
+    allowed = {'name', 'category', 'whatsappTemplateName', 'content', 'variables', 'isActive'}
+    apply_payload(template, {k: v for k, v in payload_data.items() if k in allowed}, {"whatsappTemplateName": "whatsapp_template_name", "isActive": "is_active"})
+    template.workflow = {**(template.workflow or {}), 'draft_revision': (template.workflow or {}).get('draft_revision', 1) + 1}
     db.commit()
     return {"success": True, "data": model_to_dict(template)}
 
@@ -61,6 +80,8 @@ def update_template(template_id: int, payload: TemplateUpdateRequest, user: User
 def delete_template(template_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     template = db.get(WhatsAppTemplate, template_id)
     ensure_tenant_access(template, user, "Template")
+    if (template.workflow or {}).get("submitted") or (template.targeting or {}).get("meta_id"):
+        raise HTTPException(409, "Submitted templates are retained for queued messages; deactivate them in Meta instead")
     db.delete(template)
     db.commit()
     return {"success": True, "message": "Template deleted"}
@@ -76,3 +97,37 @@ router.delete("/{template_id}")(delete_template)
 
 
 
+
+
+@router.post("/{template_id}/submit")
+def submit_template(template_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    from app.services.template_workflow import submit
+    return {"success": True, "data": model_to_dict(submit(db, user, template_id))}
+
+
+@router.post("/{template_id}/refresh")
+def refresh_template(template_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    from app.services.template_workflow import refresh
+    return {"success": True, "data": model_to_dict(refresh(db, user, template_id))}
+
+
+@router.post("/{template_id}/media")
+async def upload_template_media(template_id: int, file: UploadFile = File(...), user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    from app.services.template_workflow import owned
+    from app.services.template_media import store_asset
+    row = owned(db, user, template_id, lock=True)
+    data = await file.read(100 * 1024**2 + 1)
+    await file.close()
+    if len(data) > 100 * 1024**2:
+        raise HTTPException(413, 'Upload files up to 100 MB')
+    entry = store_asset(row, data, file.content_type, file.filename)
+    db.commit()
+    return {"success": True, "data": entry}
+
+
+@router.get("/{template_id}/media/{asset_id}")
+def preview_template_media(template_id: int, asset_id: str, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    from app.services.template_workflow import owned
+    from app.services.template_media import asset
+    entry, data = asset(owned(db, user, template_id), asset_id)
+    return Response(data, media_type=entry['mime'], headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline'})

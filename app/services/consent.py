@@ -37,15 +37,15 @@ def assert_send_allowed(db, tenant_id, organization_id, phone, template=None, wa
         raise HTTPException(403, "This recipient has not opted in or has opted out")
     if template:
         language = (template.get("language") or {}).get("code")
-        approved = db.scalar(select(WhatsAppTemplate).where(
+        rows = db.scalars(select(WhatsAppTemplate).where(
             WhatsAppTemplate.tenant_id == tenant_id,
             WhatsAppTemplate.organization_id == organization_id,
-            WhatsAppTemplate.whatsapp_template_name == template.get("name"),
-            WhatsAppTemplate.content["language"].as_string() == language,
-            WhatsAppTemplate.targeting["waba_id"].as_string() == waba_id,
             WhatsAppTemplate.stats["meta_status"].as_string() == "APPROVED",
             WhatsAppTemplate.is_active.is_(True),
-        )) if waba_id else None
+        )).all() if waba_id else []
+        from app.services.template_workflow import approved_definition
+        approved = next((r for r in rows if any(d.get('waba_id') == waba_id and d.get('name') == template.get('name') and d.get('language') == language
+                         for d in [approved_definition(r) or {}, *(r.workflow or {}).get('approved_history', [])])), None)
         if not approved:
             raise HTTPException(403, "Synchronize an approved template for the selected WhatsApp account first")
     else:

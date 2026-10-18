@@ -55,6 +55,9 @@ def disconnect_number(phone_number_id: str, user: User = Depends(require_owner),
 
 @router.post("/templates/sync")
 def sync_templates(user: User = Depends(require_module("templates", "whatsapp")), db: Session = Depends(get_db)):
+    from app.services.template_workflow import merge_provider, timestamp
+    started = timestamp()
+    db.scalar(select(Organization).where(Organization.id == user.organization_id).with_for_update())
     connections = db.scalars(select(WhatsAppConnection).where(WhatsAppConnection.tenant_id == user.tenant_id,
         WhatsAppConnection.organization_id == user.organization_id)).all()
     if not connections:
@@ -69,7 +72,7 @@ def sync_templates(user: User = Depends(require_module("templates", "whatsapp"))
         after = None
         provider_templates = []
         for _ in range(100):
-            params = {"fields": "id,name,status,category,language,components", "limit": 100}
+            params = {"fields": "id,name,status,category,language,components,rejected_reason", "limit": 100}
             if after:
                 params["after"] = after
             page = graph(connection.waba_id + "/message_templates", token, params=params)
@@ -85,23 +88,33 @@ def sync_templates(user: User = Depends(require_module("templates", "whatsapp"))
             raise HTTPException(502, "Meta template synchronization exceeded the page limit")
         # Mark absent templates inactive after a complete provider snapshot.
         current = db.scalars(select(WhatsAppTemplate).where(WhatsAppTemplate.tenant_id == user.tenant_id,
-            WhatsAppTemplate.organization_id == user.organization_id,
-            WhatsAppTemplate.targeting["waba_id"].as_string() == connection.waba_id)).all()
+            WhatsAppTemplate.organization_id == user.organization_id).with_for_update()).all()
         for row in current:
-            row.is_active = False
+            if (row.targeting or {}).get('waba_id') == connection.waba_id and (row.targeting or {}).get('meta_id') not in {str(i.get('id')) for i in provider_templates}:
+                row.is_active = False
+                row.stats = {**(row.stats or {}), 'meta_status': 'DELETED', 'synced_at': started}
         for item in provider_templates:
             if not isinstance(item, dict) or not all(item.get(key) for key in ("id", "name", "language", "category", "status")):
                 raise HTTPException(502, "Meta returned an incomplete template")
-            row = next((row for row in current if (row.targeting or {}).get("meta_id") == item["id"]), None)
+            row = next((row for row in current if
+                ((row.targeting or {}).get('waba_id') == connection.waba_id and (row.targeting or {}).get('meta_id') == str(item['id'])) or
+                ((row.workflow or {}).get('submitted', {}).get('waba_id') == connection.waba_id and
+                 ((row.workflow or {}).get('submitted', {}).get('meta_id') == str(item['id']) or
+                  ((row.workflow or {}).get('submitted', {}).get('name') == item['name'] and
+                   (row.workflow or {}).get('submitted', {}).get('language') == item['language']))) or
+                any(d.get('waba_id') == connection.waba_id and d.get('meta_id') == str(item['id'])
+                    for d in (row.workflow or {}).get('approved_history', []))), None)
             if not row:
                 row = WhatsAppTemplate(tenant_id=user.tenant_id, organization_id=user.organization_id,
                     name=item["name"], category=item["category"], whatsapp_template_name=item["name"])
                 db.add(row)
-            row.content = {"components": item.get("components") or [], "language": item["language"]}
-            row.targeting = {"waba_id": connection.waba_id, "meta_id": item["id"]}
-            row.stats = {"meta_status": item["status"], "synced_at": datetime.now(UTC).isoformat()}
-            row.category = item["category"]
-            row.is_active = item["status"] == "APPROVED"
+                row.content = {"components": item.get("components") or [], "language": item["language"]}
+                row.workflow = {}
+                current.append(row)
+            submitted = (row.workflow or {}).get('submitted') or {}
+            if submitted.get('name') == item['name'] and submitted.get('language') == item['language'] and not submitted.get('meta_id'):
+                row.workflow = {**row.workflow, 'submitted': {**submitted, 'meta_id': str(item['id'])}}
+            merge_provider(row, item, connection.waba_id, connection.phone_number_id, started)
             count += 1
     audit(db, user, "whatsapp.templates.synchronized", details={"count": count})
     db.commit()

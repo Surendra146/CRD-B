@@ -23,6 +23,7 @@ from app.utils.helpers import model_to_dict
 from app.config.settings import get_settings
 from app.services.consent import assert_send_allowed, record_message
 from app.services.billing import require_paid_subscription
+from app.services.template_workflow import prepare_send, hydrate_media
 
 
 def communication_payload(payload: CommunicationRequest) -> dict:
@@ -34,8 +35,24 @@ def send_whatsapp(payload: CommunicationRequest, user: User = Depends(require_or
     if get_settings().enforce_subscription:
         require_paid_subscription(db, user)
     credentials = resolve_credentials(db, user, payload_data.get("sender_phone_number_id")) if payload_data.get("sender_phone_number_id") else resolve_credentials(db, user)
+    recipient = payload_data.get('recipient') or {}
+    if not isinstance(recipient, dict):
+        raise HTTPException(422, 'Recipient context must be an object')
+    recipient = {**recipient, 'phone': payload_data.get('phone') or payload_data.get('to')}
+    customer = db.scalar(select(Customer).where(Customer.tenant_id == user.tenant_id,
+        Customer.organization_id == user.organization_id,
+        Customer.phone == (payload_data.get('phone') or payload_data.get('to')))) if payload_data.get('template') else None
+    if customer:
+        recipient = {**recipient, 'name': customer.name, 'phone': customer.phone, 'email': customer.email,
+                     'lifecycle': customer.lifecycle or {}, 'demographics': customer.demographics or {}}
+    approved_payload, snapshot = prepare_send(db, user, payload_data, credentials, recipient)
+    if approved_payload:
+        payload_data['template'] = approved_payload
+        payload_data['buttons'], payload_data['media_files'] = [], []
     if get_settings().enforce_whatsapp_consent:
         assert_send_allowed(db, user.tenant_id, user.organization_id, payload_data.get("phone") or payload_data.get("to"), payload_data.get("template"), credentials.whatsapp_waba_id)
+    if approved_payload:
+        payload_data['template'] = hydrate_media(db, user, approved_payload, snapshot, credentials)
     result = send_message(
         payload_data.get("phone") or payload_data.get("to"), payload_data.get("message") or "",
         template=payload_data.get("template"), buttons=payload_data.get("buttons"),
@@ -142,6 +159,10 @@ def send_bulk_whatsapp(
         for item in raw_numbers:
             if isinstance(item, dict):
                 recipients_data.append({
+                    'email': item.get('email'),
+                    'city': item.get('city'),
+                    'lifecycle': item.get('lifecycle') or {},
+                    'demographics': item.get('demographics') or {},
                     "name": item.get("name") or "Recipient",
                     "phone": item.get("phone") or item.get("formatted"),
                 })
@@ -158,15 +179,21 @@ def send_bulk_whatsapp(
 
     # Generate personalized messages for each recipient
     recipients_summary = []
+    template_snapshot = None
     for rec in recipients_data:
         msg = personalize_message(message_text, rec)
-        build_message(rec.get("phone"), msg, template=req.get("template"), buttons=buttons, media_files=media_files)
+        approved_payload, template_snapshot = prepare_send(db, user, req, connection, rec)
+        if approved_payload:
+            from app.services.template_definitions import rendered_body
+            msg = rendered_body(template_snapshot['definition'], approved_payload)
+        build_message(rec.get("phone"), msg, template=approved_payload, buttons=buttons, media_files=media_files)
         recipients_summary.append({
             "name": rec.get("name"),
             "phone": rec.get("phone"),
             "personalized_message": msg,
             "status": "queued",
             "delivered_at": None,
+            "approved_template": approved_payload,
         })
 
     asynchronous = get_settings().campaign_transport == "celery"
@@ -187,7 +214,8 @@ def send_bulk_whatsapp(
         tenant_code=user.tenant_code,
         title=req.get("title") or f"Bulk Broadcast {datetime.now(timezone.utc).strftime('%b %d, %H:%M')}",
         audience_type=audience_type,
-        audience_payload={**audience, "sender_phone_number_id": connection.whatsapp_phone_number_id, "meta_template": req.get("template")},
+        audience_payload={**audience, "sender_phone_number_id": connection.whatsapp_phone_number_id,
+                          "meta_template": recipients_summary[0].get('approved_template'), 'template_snapshot': template_snapshot},
         message_template=message_text,
         buttons=buttons,
         media_files=media_files,
@@ -236,13 +264,25 @@ def dispatch_bulk_job(db, bulk_job, connection):
         bulk_job.recipients_summary = current
         db.commit()
         try:
-            assert_send_allowed(db, bulk_job.tenant_id, bulk_job.organization_id, recipient["phone"], bulk_job.audience_payload.get("meta_template"), getattr(connection, "whatsapp_waba_id", None))
+            template_payload = recipient.get('approved_template') or bulk_job.audience_payload.get('meta_template')
+            snapshot = bulk_job.audience_payload.get('template_snapshot')
+            if template_payload:
+                from types import SimpleNamespace
+                from app.services.template_workflow import verify_queued
+                scoped_user = SimpleNamespace(tenant_id=bulk_job.tenant_id, organization_id=bulk_job.organization_id)
+                if snapshot:
+                    verify_queued(db, scoped_user, snapshot, connection)
+                else:
+                    # Validate jobs queued by an older application version too.
+                    template_payload, snapshot = prepare_send(db, scoped_user, {'template': template_payload}, connection, recipient)
+                template_payload = hydrate_media(db, scoped_user, template_payload, snapshot, connection)
+            assert_send_allowed(db, bulk_job.tenant_id, bulk_job.organization_id, recipient["phone"], template_payload, getattr(connection, "whatsapp_waba_id", None))
             if get_settings().enforce_subscription:
                 from app.models import User
                 creator = db.get(User, bulk_job.created_by)
                 require_paid_subscription(db, creator)
             result = send_message(recipient["phone"], recipient["personalized_message"],
-                                  template=bulk_job.audience_payload.get("meta_template"), buttons=bulk_job.buttons, media_files=bulk_job.media_files, connection=connection)
+                                  template=template_payload, buttons=[] if template_payload else bulk_job.buttons, media_files=[] if template_payload else bulk_job.media_files, connection=connection)
             recipient.update(result)
             if hasattr(db, "execute"):
                 record_message(db, bulk_job.tenant_id, bulk_job.organization_id, connection.whatsapp_phone_number_id, recipient["phone"], result, bulk_job.id)
