@@ -152,6 +152,9 @@ def apply_status(recipient, status):
     if rank.get(state, 0) < rank.get(recipient.get("status"), 0):
         return recipient
     result = {**recipient, "status": state, "status_timestamp": timestamp}
+    result['status_updated_at'] = status_time
+    if state in {'sent', 'read'}:
+        result[state + '_at'] = recipient.get(state + '_at') or status_time
     if state in {"delivered", "read"}:
         result["delivered_at"] = recipient.get("delivered_at") or status_time
         result.pop("error", None)

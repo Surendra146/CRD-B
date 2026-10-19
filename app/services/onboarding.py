@@ -157,10 +157,13 @@ def verify(db, row, actor, payload):
         from app.models.saas import MessageRecord
         previous = db.scalar(select(MessageRecord).where(MessageRecord.tenant_id == row.tenant_id,
             MessageRecord.organization_id == row.organization_id,
+            MessageRecord.sender_phone_id == connection.phone_number_id,
             MessageRecord.provider_message_id == evidence.get('test_message_id')))
         if previous and previous.status in {'accepted', 'sent', 'delivered', 'read'}:
             # A response retry cannot send another real test message.
-            return
+            return 'reused'
+    if evidence.get('checked_at') and datetime.fromisoformat(evidence['checked_at']) > datetime.now(UTC) - timedelta(minutes=1):
+        conflict('TEST_RETRY_COOLDOWN', 'Wait one minute after the last test before retrying')
     from app.database.authorization import staff_scope
     staff_scope(db, actor, 'onboarding.manage', resource=row.id, action='platform.onboarding.updated',
                 target_tenant=row.tenant_id, target_org=row.organization_id,
@@ -195,6 +198,7 @@ def verify(db, row, actor, payload):
     row.verified_by = actor.id
     record(row, actor, 'verification_submitted')
     audit(db, actor, 'platform.onboarding.updated', row.id, {'verification': 'test_accepted'})
+    return 'sent'
 
 
 def require_verified(db, row):
@@ -211,6 +215,7 @@ def require_verified(db, row):
     message = db.scalar(select(MessageRecord).where(MessageRecord.tenant_id == row.tenant_id,
         MessageRecord.organization_id == row.organization_id,
         MessageRecord.sender_phone_id == connection.phone_number_id,
+        MessageRecord.recipient == evidence.get('test_phone'),
         MessageRecord.provider_message_id == evidence.get('test_message_id')))
     if not message or message.status not in {'delivered', 'read'}:
         conflict('TEST_DELIVERY_REQUIRED', 'Wait for the signed Meta webhook to confirm test message delivery before connecting')
@@ -220,6 +225,21 @@ def require_verified(db, row):
 
 def public_request(db, row):
     data = model_to_dict(row)
+    evidence = dict(row.verification or {})
+    if evidence.get('test_message_id') and evidence.get('phone_number_id'):
+        from app.models.saas import MessageRecord
+        message = db.scalar(select(MessageRecord).where(
+            MessageRecord.tenant_id == row.tenant_id,
+            MessageRecord.organization_id == row.organization_id,
+            MessageRecord.sender_phone_id == evidence['phone_number_id'],
+            MessageRecord.recipient == evidence.get('test_phone'),
+            MessageRecord.provider_message_id == evidence['test_message_id']))
+        if message:
+            evidence.update(message.delivery_details or {})
+            evidence['test_result'] = message.status
+        evidence['api_acceptance'] = 'accepted'
+        evidence['callback_received'] = bool(evidence.get('webhook_received_at'))
+        data['verification'] = evidence
     subscription = billing.subscription_for(db, scope(row))
     data['subscription_status'] = billing.effective_status(subscription) or 'none'
     data['eligibility_error'] = eligibility(db, row)

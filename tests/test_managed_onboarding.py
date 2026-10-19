@@ -194,3 +194,37 @@ def test_subscription_expiry_prevents_connect_before_provider_calls(monkeypatch)
     row = request('setup_in_progress')
     with pytest.raises(HTTPException): service.transition(Mock(), row, NS(id=4), 'connected')
     verify.assert_not_called(); assert row.status == 'setup_in_progress'
+
+
+@pytest.mark.parametrize('status', ['accepted', 'sent', 'failed', 'delivered', 'read'])
+def test_connect_requires_successful_latest_test(monkeypatch, status):
+    connection = provider(monkeypatch)
+    monkeypatch.setattr(service, 'matching_connection', lambda *a: connection)
+    monkeypatch.setattr(service, 'require_eligible', lambda *a: None)
+    row = request('setup_in_progress')
+    row.verification = {'authorization': True, 'phone_match': True, 'webhook': True,
+        'checked_at': datetime.now(UTC).isoformat(), 'connection_id': connection.id,
+        'connection_updated_at': connection.updated_at.isoformat(),
+        'test_message_id': 'wamid.test', 'test_phone': '919000000001'}
+    db = Mock()
+    db.scalar.return_value = NS(status=status)
+    if status in {'delivered', 'read'}:
+        service.require_verified(db, row)
+        assert row.verification['test_result'] == status
+    else:
+        with pytest.raises(HTTPException) as error:
+            service.require_verified(db, row)
+        assert error.value.detail['code'] == 'TEST_DELIVERY_REQUIRED'
+
+
+def test_failed_test_has_retry_cooldown_and_preserves_evidence(monkeypatch):
+    connection = provider(monkeypatch)
+    monkeypatch.setattr(service, 'matching_connection', lambda *a: connection)
+    monkeypatch.setattr(service, 'require_eligible', lambda *a: None)
+    row = request('setup_in_progress')
+    row.verification = {'checked_at': datetime.now(UTC).isoformat(), 'test_message_id': 'old'}
+    with pytest.raises(HTTPException) as error:
+        service.verify(Mock(), row, NS(id=4), VerificationPayload(
+            test_phone='919000000001', template_name='approved_test', language='en_US'))
+    assert error.value.detail['code'] == 'TEST_RETRY_COOLDOWN'
+    assert row.verification['test_message_id'] == 'old'

@@ -16,7 +16,7 @@ def provision_keys(connection, secrets, *, local_development=False):
     database, session, current = connection.execute(text(
         'SELECT current_database(), session_user, current_user'
     )).one()
-    expected_database = 'hanuram_dev' if local_development else 'hanuram_production'
+    expected_database = 'hanuram_dev' if local_development else 'hanuram_production_ii23'
     expected_operator = 'hanuram_dev_user' if local_development else 'hanuram_production_user'
     if database != expected_database:
         raise RuntimeError(f'Expected database {expected_database}')

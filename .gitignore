@@ -19,3 +19,5 @@ test-results/
 
 .vscode/
 .api-integration/
+
+.template-media/

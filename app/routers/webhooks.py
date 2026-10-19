@@ -2,12 +2,15 @@ import secrets
 import hashlib
 import hmac
 import json
+import logging
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config.settings import get_settings
 from app.database.connection import get_control_db, SessionLocal
@@ -16,6 +19,7 @@ from app.models import WhatsAppBulkJob, WhatsAppConnection
 from app.services.meta_whatsapp import apply_status, update_stats
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/whatsapp", response_class=PlainTextResponse)
@@ -38,6 +42,15 @@ def verify_whatsapp(request: Request):
 
 @router.post("/whatsapp")
 async def receive_whatsapp(request: Request, db: Session = Depends(get_control_db)):
+    try:
+        return await _receive_whatsapp(request, db)
+    except SQLAlchemyError:
+        db.rollback()
+        logger.error('WhatsApp webhook database processing failed; callback may be retried')
+        raise HTTPException(503, 'Webhook processing temporarily unavailable') from None
+
+
+async def _receive_whatsapp(request, db):
     settings = get_settings()
     if not settings.meta_app_secret:
         raise HTTPException(503, "META_APP_SECRET is required to verify WhatsApp webhooks")
@@ -103,9 +116,13 @@ def apply_change(db, connection, value):
                 MessageRecord.tenant_id == connection.tenant_id, MessageRecord.organization_id == connection.organization_id,
                 MessageRecord.sender_phone_id == connection.phone_number_id).with_for_update())
             if record:
-                current = apply_status({'status': record.status, 'status_timestamp': record.status_timestamp}, status)
+                details = dict(record.delivery_details or {})
+                current = apply_status({**details, 'status': record.status, 'status_timestamp': record.status_timestamp}, status)
                 record.status = current['status']
                 record.status_timestamp = current.get('status_timestamp', record.status_timestamp)
+                record.delivery_details = {key: value for key, value in current.items()
+                                           if key not in {'status', 'status_timestamp'}}
+                record.delivery_details['webhook_received_at'] = datetime.now(UTC).isoformat()
         jobs = db.scalars(select(WhatsAppBulkJob).where(
             WhatsAppBulkJob.recipients_summary.contains([{'message_id': message_id}]),
             WhatsAppBulkJob.tenant_id == connection.tenant_id,

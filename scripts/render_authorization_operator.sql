@@ -2,10 +2,16 @@
 -- This does not contain passwords, signing keys, or application data.
 -- PostgreSQL 18; both application logins must already exist.
 BEGIN;
+SET LOCAL hanuram_setup.expected_database =
+    'hanuram_production_ii23';
 DO $$
 DECLARE expected_database text:=coalesce(nullif(current_setting('hanuram_setup.expected_database',true),''),'hanuram_production');
 BEGIN
-    IF expected_database NOT IN ('hanuram_production','hanuram_dev') THEN
+    IF expected_database NOT IN (
+    'hanuram_production',
+    'hanuram_production_ii23',
+    'hanuram_dev'
+) THEN
         RAISE EXCEPTION 'Unsupported setup database';
     END IF;
     IF current_database() <> expected_database THEN

@@ -153,6 +153,7 @@ class MessageRecord(Base, TimestampMixin):
     recipient: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     status_timestamp: Mapped[int] = mapped_column(Integer, default=0)
+    delivery_details: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False)
     bulk_job_id: Mapped[int | None] = mapped_column(ForeignKey("whatsapp_bulk_jobs.id"))
 
 

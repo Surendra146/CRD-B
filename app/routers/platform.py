@@ -242,15 +242,16 @@ def verify_onboarding(request_id: str, payload: VerificationPayload,
                 target_tenant=row.tenant_id, target_org=row.organization_id, test_phone=payload.test_phone)
     row = locked(db, request_id)
     try:
-        verify(db, row, user, payload)
+        test_action = verify(db, row, user, payload)
     except HTTPException:
         # Save only a safe diagnostic; no provider bodies, access tokens or credentials.
-        row.verification = {'result': 'failed', 'checked_at': datetime.now(UTC).isoformat()}
+        # Preserve the last correlated message when a retry/provider check fails.
         audit(db, user, 'platform.onboarding.updated', row.id, {'verification': 'failed'})
         db.commit()
         raise
     db.commit()
-    return {'success': True, 'data': model_to_dict(row)}
+    from app.services.onboarding import public_request
+    return {'success': True, 'data': public_request(db, row), 'test_action': test_action}
 
 
 @router.post("/usage")
