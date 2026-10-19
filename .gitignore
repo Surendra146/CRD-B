@@ -21,3 +21,4 @@ test-results/
 .api-integration/
 
 .template-media/
+pytest-temp/

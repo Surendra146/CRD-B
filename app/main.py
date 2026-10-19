@@ -140,9 +140,15 @@ def create_app():
         try:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
+                if settings.require_rls:
+                    from app.database.migrations import validate_schema_compatibility
+                    validate_schema_compatibility(connection)
             dependency = "control_database"
             with control_engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
+                if settings.require_rls:
+                    from app.database.migrations import validate_schema_compatibility
+                    validate_schema_compatibility(connection)
             if settings.campaign_transport == "celery":
                 dependency = "redis"
                 from redis import Redis

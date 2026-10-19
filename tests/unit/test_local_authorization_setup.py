@@ -13,11 +13,11 @@ def connection(database, operator, current=None):
     db.scalar.side_effect = [99, True, True, True, True, False]
     return db
 
-
 @pytest.mark.parametrize('local,database,operator', [
-    (False, 'hanuram_production', 'hanuram_production_user'),
+    (False, 'hanuram_production_ii23', 'hanuram_production_user'),
     (True, 'hanuram_dev', 'hanuram_dev_user'),
 ])
+
 def test_explicit_setup_mode_accepts_only_its_database_and_operator(local, database, operator):
     db = connection(database, operator)
     provision_keys(db, KEYS, local_development=local)
