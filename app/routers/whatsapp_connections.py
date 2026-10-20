@@ -66,7 +66,7 @@ def status(user: User = Depends(require_organization), db: Session = Depends(get
         if request and request.status != 'connected':
             public['connected'] = False
     return {"success": True, "data": {**public,
-        "signup_configured": configured, "can_manage": user.role == "owner" and user.organization.owner_id == user.id}}
+        "signup_configured": configured, "can_manage": user.role == "owner" and user.organization is not None and user.organization.owner_id == user.id}}
 
 
 @router.post("/start")

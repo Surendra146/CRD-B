@@ -9,7 +9,7 @@ from app.database.authorization import staff_scope, enabled
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_control_db
-from app.models import Tenant, User, WhatsAppConnection
+from app.models import Tenant, User
 from app.models.saas import AuditEvent, OnboardingRequest, PlatformStaff, Subscription, SubscriptionPlan, UsageEntry
 from app.services import billing
 from app.services.audit import audit
@@ -246,7 +246,7 @@ def verify_onboarding(request_id: str, payload: VerificationPayload,
     except HTTPException:
         # Save only a safe diagnostic; no provider bodies, access tokens or credentials.
         # Preserve the last correlated message when a retry/provider check fails.
-        audit(db, user, 'platform.onboarding.updated', row.id, {'verification': 'failed'})
+        audit(db, user, 'platform.onboarding.updated', request_id, {'verification': 'failed'})
         db.commit()
         raise
     db.commit()

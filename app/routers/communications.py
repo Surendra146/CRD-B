@@ -183,7 +183,7 @@ def send_bulk_whatsapp(
     for rec in recipients_data:
         msg = personalize_message(message_text, rec)
         approved_payload, template_snapshot = prepare_send(db, user, req, connection, rec)
-        if approved_payload:
+        if approved_payload and template_snapshot:
             from app.services.template_definitions import rendered_body
             msg = rendered_body(template_snapshot['definition'], approved_payload)
         build_message(rec.get("phone"), msg, template=approved_payload, buttons=buttons, media_files=media_files)

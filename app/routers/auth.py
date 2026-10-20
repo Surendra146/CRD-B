@@ -54,6 +54,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_control_db)):
             created = db.scalar(text("SELECT hanuram_auth.register_account()"))
             authorize(db, "identity.user", sub=created["user_id"], tenant=created["tenant_id"], iat=time.time())
             user = db.get(User, created["user_id"])
+            if user is None:
+                raise HTTPException(500, "Registered user could not be loaded")
             account_scope(db, user)
             db.commit()
         except IntegrityError:

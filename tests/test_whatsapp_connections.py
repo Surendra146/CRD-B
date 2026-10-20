@@ -94,7 +94,7 @@ def test_another_meta_apps_token_is_rejected(config, monkeypatch):
 def test_raw_access_tokens_cannot_be_submitted_as_oauth_payloads():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
-        ExchangeRequest(state='a' * 32, code='code', access_token='untrusted-token')
+        ExchangeRequest(**{'state': 'a' * 32, 'code': 'code', 'access_token': 'untrusted-token'})
 
 
 def test_expired_signup_attempt_is_rejected():

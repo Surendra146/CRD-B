@@ -1,6 +1,8 @@
 from datetime import datetime, timezone, timedelta
+from typing import Any, cast
 import pytest
 from fastapi import HTTPException
+from app.models.user import User
 from app.services.whatsapp_scheduler import parse_schedule
 
 
@@ -38,7 +40,7 @@ def test_scheduled_submission_does_not_call_meta(monkeypatch):
     future = datetime.now(timezone.utc) + timedelta(days=1)
     user = SimpleNamespace(tenant_id=1, organization_id=2, tenant_code="test", id=3)
     request = WhatsAppBulkSendRequest(audience_type="custom_numbers", audience={"numbers": ["9000000000"]}, message="Hello", scheduled_at=future.isoformat())
-    result = communications.send_bulk_whatsapp(request, user, db)
+    result = communications.send_bulk_whatsapp(request, cast(User, user), cast(Any, db))
     assert result["success"] is True
     assert result["data"]["status"] == "scheduled"
     assert result["data"]["stats"]["sent"] == 0

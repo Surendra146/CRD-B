@@ -3,6 +3,7 @@ import hmac
 import io
 import json
 from types import SimpleNamespace
+from typing import Any, cast
 from urllib.error import HTTPError
 
 import pytest
@@ -39,7 +40,7 @@ def test_single_send_really_calls_meta_and_does_not_claim_delivery(settings, mon
         assert payload["text"]["body"] == "Hello"
         return io.StringIO('{"messages":[{"id":"wamid.test"}]}')
     monkeypatch.setattr(meta, "urlopen", provider)
-    result = communications.send_whatsapp(CommunicationRequest(phone="8341645455", message="Hello"), SimpleNamespace(), object())
+    result = communications.send_whatsapp(CommunicationRequest(**{"phone": "8341645455", "message": "Hello"}), cast(Any, SimpleNamespace()), cast(Any, object()))
     assert result["data"]["message_id"] == "wamid.test"
     assert result["data"]["status"] == "accepted"
     assert "not yet confirmed" in result["message"]
@@ -47,12 +48,12 @@ def test_single_send_really_calls_meta_and_does_not_claim_delivery(settings, mon
 
 def test_meta_rejection_is_not_success_and_token_is_redacted(settings, monkeypatch):
     def provider(*args, **kwargs):
-        raise HTTPError("https://graph.facebook.com", 400, "Bad Request", {}, io.BytesIO(b'{"error":{"code":190,"message":"invalid private-token"}}'))
+        raise HTTPError("https://graph.facebook.com", 400, "Bad Request", cast(Any, {}), io.BytesIO(b'{"error":{"code":190,"message":"invalid private-token"}}'))
     monkeypatch.setattr(meta, "urlopen", provider)
     with pytest.raises(HTTPException) as error:
         meta.send_message("8341645455", "Hello", connection=settings)
     assert error.value.status_code == 502
-    assert error.value.detail["code"] == 190
+    assert cast(dict[str, Any], error.value.detail)["code"] == 190
     assert "private-token" not in str(error.value.detail)
 
 
@@ -95,9 +96,9 @@ def test_bulk_dispatch_records_provider_acceptance_and_failure(settings, monkeyp
             raise HTTPException(502, {"code": 131030, "message": "Recipient not allowed"})
         return {"status": "accepted", "message_id": "wamid.bulk", "phone": meta.normalize_phone(phone)}
     monkeypatch.setattr(communications, "send_message", provider)
-    user = SimpleNamespace(tenant_id=1, organization_id=2, tenant_code="test", id=3)
+    user: Any = SimpleNamespace(tenant_id=1, organization_id=2, tenant_code="test", id=3)
     request = WhatsAppBulkSendRequest(audience_type="custom_numbers", audience={"numbers": ["9000000000", "9000000001"]}, message="Hello", batch_delay_seconds=0)
-    result = communications.send_bulk_whatsapp(request, user, db)
+    result = communications.send_bulk_whatsapp(request, user, cast(Any, db))
     assert result["data"]["stats"] == {"total": 2, "sent": 1, "delivered": 0, "failed": 1, "pending": 1}
     assert [r["status"] for r in db.job.recipients_summary] == ["accepted", "failed"]
     assert all(r["delivered_at"] is None for r in db.job.recipients_summary)

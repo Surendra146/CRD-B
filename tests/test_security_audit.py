@@ -1,12 +1,13 @@
 import io
 import json
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
-from app.models import Customer
+from app.models import Customer, User
 from app.services.crud import apply_payload
 from app.services.security import require_owner, require_whatsapp_access
 from app.services import security, gmaps_service, meta_whatsapp
@@ -25,21 +26,21 @@ def test_ownership_mass_assignment_blocked(field):
 
 def test_member_cannot_manage_permissions():
     with pytest.raises(HTTPException) as error:
-        require_owner(SimpleNamespace(role="member", id=2, organization=SimpleNamespace(owner_id=1)))
+        require_owner(cast(User, SimpleNamespace(role="member", id=2, organization=SimpleNamespace(owner_id=1))))
     assert error.value.status_code == 403
 
 
 def test_owner_role_alone_cannot_impersonate_owner():
     with pytest.raises(HTTPException):
-        require_owner(SimpleNamespace(role="owner", id=2, organization=SimpleNamespace(owner_id=1)))
+        require_owner(cast(User, SimpleNamespace(role="owner", id=2, organization=SimpleNamespace(owner_id=1))))
 
 
 def test_sending_requires_whatsapp_permission():
     with pytest.raises(HTTPException) as error:
-        require_whatsapp_access(user=SimpleNamespace(organization_id=2, role="member", allowed_modules=[]), request=None)
+        require_whatsapp_access(user=cast(User, SimpleNamespace(organization_id=2, role="member", allowed_modules=[])), request=cast(Request, None))
     assert error.value.status_code == 403
-    owner = SimpleNamespace(organization_id=2, role="owner")
-    assert require_whatsapp_access(user=owner, request=None) is owner
+    owner = cast(User, SimpleNamespace(organization_id=2, role="owner"))
+    assert require_whatsapp_access(user=owner, request=cast(Request, None)) is owner
 
 
 

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as NS
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -40,7 +41,8 @@ def test_effective_subscription_gate_is_atomic(monkeypatch, sub, entitlements, c
         with pytest.raises(HTTPException) as error:
             service.transition(db, row, NS(id=4, tenant_id=3, organization_id=5), 'accepted')
         assert error.value.status_code == 409
-        assert error.value.detail['code'] == code
+        assert isinstance(error.value.detail, dict)
+        assert cast(dict[str, object], error.value.detail)['code'] == code
         assert row.status == 'requested' and row.history == [] and row.assigned_admin_id is None
         db.add.assert_not_called()
     else:
@@ -66,7 +68,8 @@ def test_subscription_retry_and_expiry_after_acceptance(monkeypatch):
 def test_invalid_transition_cannot_skip_steps(from_status, to_status):
     with pytest.raises(HTTPException) as error:
         service.transition(Mock(), request(from_status), NS(id=4), to_status)
-    assert error.value.detail['code'] == 'INVALID_TRANSITION'
+    assert isinstance(error.value.detail, dict)
+    assert cast(dict[str, object], error.value.detail)['code'] == 'INVALID_TRANSITION'
 
 
 def test_rejection_requires_reason_and_preserves_history():
@@ -84,8 +87,8 @@ def test_tenant_confirmation_does_not_activate_and_is_idempotent():
     from app.models.saas import OnboardingRequest
     real = OnboardingRequest(id='request', tenant_id=1, organization_id=2, status='action_required', history=[])
     db.scalar.return_value = real
-    verification_completed('request', actor, db)
-    verification_completed('request', actor, db)
+    verification_completed('request', cast(Any, actor), db)
+    verification_completed('request', cast(Any, actor), db)
     assert real.status == 'action_required' and real.tenant_confirmed_at
     assert len(real.history) == 1
     db.commit.assert_called_once()
@@ -94,7 +97,7 @@ def test_tenant_confirmation_does_not_activate_and_is_idempotent():
 def test_cross_tenant_confirmation_returns_not_found():
     db = Mock(); db.scalar.return_value = None
     with pytest.raises(HTTPException) as error:
-        verification_completed('other-request', NS(id=4, tenant_id=1, organization_id=2), db)
+        verification_completed('other-request', cast(Any, NS(id=4, tenant_id=1, organization_id=2)), db)
     assert error.value.status_code == 404
     params = db.scalar.call_args.args[0].compile().params
     assert params['tenant_id_1'] == 1 and params['organization_id_1'] == 2
@@ -108,13 +111,13 @@ def test_invalid_request_phone(phone):
 def test_blank_business_and_untrusted_status_fields_are_rejected():
     with pytest.raises(ValidationError): OnboardingPayload(phone='919000000000', business_name='  ')
     with pytest.raises(ValidationError): OnboardingUpdate(status='ready', customer_message='Bypass')
-    with pytest.raises(ValidationError): OnboardingPayload(phone='919000000000', business_name='Business', tenant_id=99)
+    with pytest.raises(ValidationError): OnboardingPayload(phone='919000000000', business_name='Business', **{'tenant_id': 99})
 
 
 def test_tenant_admin_is_not_platform_staff():
     db = Mock(); db.get.return_value = None
     with pytest.raises(HTTPException) as error:
-        staff_permission('onboarding.manage')(NS(id=4, role='admin'), db)
+        staff_permission('onboarding.manage')(cast(Any, NS(id=4, role='admin')), db)
     assert error.value.status_code == 403
 
 
@@ -147,7 +150,7 @@ def test_wrong_tenant_and_number_rejected(monkeypatch):
     with pytest.raises(HTTPException): service.provider_checks(connection, row)
     connection.organization_id = 2; row.phone = '919000000001'
     with pytest.raises(HTTPException) as error: service.provider_checks(connection, row)
-    assert error.value.detail['code'] == 'PHONE_MISMATCH'
+    assert cast(dict[str, object], error.value.detail)['code'] == 'PHONE_MISMATCH'
 
 
 def test_invalid_authorization_and_failed_webhook_rejected(monkeypatch):
@@ -157,7 +160,7 @@ def test_invalid_authorization_and_failed_webhook_rejected(monkeypatch):
     connection = provider(monkeypatch)
     monkeypatch.setattr(service, 'graph', lambda *a, **k: {'data':[]})
     with pytest.raises(HTTPException) as error: service.provider_checks(connection, row)
-    assert error.value.detail['code'] == 'WEBHOOK_NOT_CONFIGURED'
+    assert cast(dict[str, object], error.value.detail)['code'] == 'WEBHOOK_NOT_CONFIGURED'
 
 
 def test_verification_requires_consent_and_successful_test(monkeypatch):
@@ -173,7 +176,7 @@ def test_verification_requires_consent_and_successful_test(monkeypatch):
     original = service.graph
     monkeypatch.setattr(service, 'graph', lambda path, *a, **k: {} if path.endswith('/messages') else original(path, *a, **k))
     with pytest.raises(HTTPException) as error: service.verify(db, row, actor, payload)
-    assert error.value.detail['code'] == 'TEST_MESSAGE_FAILED'
+    assert cast(dict[str, object], error.value.detail)['code'] == 'TEST_MESSAGE_FAILED'
     monkeypatch.setattr(service, 'graph', original)
     service.verify(db, row, actor, payload)
     assert row.status == 'setup_in_progress' and row.verification['test_result'] == 'accepted'
@@ -182,7 +185,7 @@ def test_verification_requires_consent_and_successful_test(monkeypatch):
     service.verify(db, row, actor, payload)
     assert db.add.call_count == call_count  # Retry cannot resend or create duplicate evidence.
     with pytest.raises(HTTPException) as error: service.require_verified(db, row)
-    assert error.value.detail['code'] == 'TEST_DELIVERY_REQUIRED'
+    assert cast(dict[str, object], error.value.detail)['code'] == 'TEST_DELIVERY_REQUIRED'
     db.scalar.return_value = NS(status='delivered')
     service.transition(db, row, actor, 'connected')
     assert row.status == 'connected' and row.connected_at and row.verified_by == 4
@@ -214,7 +217,7 @@ def test_connect_requires_successful_latest_test(monkeypatch, status):
     else:
         with pytest.raises(HTTPException) as error:
             service.require_verified(db, row)
-        assert error.value.detail['code'] == 'TEST_DELIVERY_REQUIRED'
+        assert cast(dict[str, object], error.value.detail)['code'] == 'TEST_DELIVERY_REQUIRED'
 
 
 def test_failed_test_has_retry_cooldown_and_preserves_evidence(monkeypatch):
@@ -226,5 +229,5 @@ def test_failed_test_has_retry_cooldown_and_preserves_evidence(monkeypatch):
     with pytest.raises(HTTPException) as error:
         service.verify(Mock(), row, NS(id=4), VerificationPayload(
             test_phone='919000000001', template_name='approved_test', language='en_US'))
-    assert error.value.detail['code'] == 'TEST_RETRY_COOLDOWN'
+    assert cast(dict[str, object], error.value.detail)['code'] == 'TEST_RETRY_COOLDOWN'
     assert row.verification['test_message_id'] == 'old'

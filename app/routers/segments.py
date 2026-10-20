@@ -52,6 +52,8 @@ def update_segment(segment_id: int, payload: SegmentUpdateRequest, user: User = 
 
 def delete_segment(segment_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     segment = db.get(Segment, segment_id)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Segment not found")
     ensure_tenant_access(segment, user, "Segment")
     segment.is_active = False
     db.commit()

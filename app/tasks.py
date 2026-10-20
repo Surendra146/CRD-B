@@ -1,8 +1,12 @@
 """Redis/Celery delivery; database outbox recovers missed broker publication."""
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from celery import Celery
+from celery.app.task import Task
+from fastapi import Request
 from sqlalchemy import select
+from sqlalchemy.engine import Engine
 
 from app.config.settings import get_settings
 
@@ -25,7 +29,10 @@ def publish_due():
                 claim = claim_campaign(db)
                 if not claim:
                     break
-                deliver_job.delay(claim['job_id'], claim['tenant_id'], claim['organization_id'], claim)
+                celery_app.send_task(
+                    "hanuram.deliver_job",
+                    args=[claim['job_id'], claim['tenant_id'], claim['organization_id'], claim],
+                )
             return
         rows = db.scalars(select(CampaignOutbox).join(WhatsAppBulkJob, WhatsAppBulkJob.id == CampaignOutbox.bulk_job_id).where(
             WhatsAppBulkJob.status.in_(["scheduled", "in_progress"]), WhatsAppBulkJob.scheduled_at <= datetime.now(UTC).replace(tzinfo=None),
@@ -34,7 +41,7 @@ def publish_due():
         for row in rows:
             if row.last_attempt_at and row.last_attempt_at > datetime.now(UTC) - timedelta(minutes=2):
                 continue
-            deliver_job.delay(row.bulk_job_id, row.tenant_id, row.organization_id)
+            cast(Task, deliver_job).delay(row.bulk_job_id, row.tenant_id, row.organization_id)
             row.status = "published"
             row.last_attempt_at = datetime.now(UTC)
         db.commit()
@@ -67,11 +74,11 @@ def deliver_job(job_id, tenant_id, organization_id, claim=None):
             WhatsAppBulkJob.tenant_id == tenant_id, WhatsAppBulkJob.organization_id == organization_id).with_for_update())
         if not job or job.status not in {"scheduled", "in_progress"}:
             return
-        if job.status == "scheduled" and job.scheduled_at > datetime.now(UTC).replace(tzinfo=None):
+        if job.status == "scheduled" and cast(datetime, job.scheduled_at) > datetime.now(UTC).replace(tzinfo=None):
             return
         # Hold a PostgreSQL advisory lock for the entire dispatch, across commits.
         # Use a dedicated connection; returning it to the pool releases it below.
-        lock = db.get_bind().connect()
+        lock = cast(Engine, db.get_bind()).connect()
         try:
             if not lock.scalar(__import__('sqlalchemy').text("SELECT pg_try_advisory_lock(:key)"), {"key": job_id}):
                 return
@@ -81,7 +88,7 @@ def deliver_job(job_id, tenant_id, organization_id, claim=None):
                 job.status = "paused"
                 db.commit()
                 return
-            require_whatsapp_access(request=None, user=user)
+            require_whatsapp_access(request=cast(Request, None), user=user)
             sender = job.audience_payload.get("sender_phone_number_id")
             credentials = resolve_credentials(db, user, sender)
             job.status = "in_progress"

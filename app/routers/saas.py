@@ -78,7 +78,10 @@ def plans(user: User = Depends(require_organization), db: Session = Depends(get_
 def subscription(user: User = Depends(require_organization), db: Session = Depends(get_db)):
     row = billing.subscription_for(db, user)
     from app.services.onboarding import eligibility
-    return {"success": True, "data": {**public_subscription(row), 'whatsapp_eligible': eligibility(db, user) is None} if row else None}
+    data = public_subscription(row) if row else None
+    if data is not None:
+        data['whatsapp_eligible'] = eligibility(db, user) is None
+    return {"success": True, "data": data}
 
 
 @router.get("/invoices")

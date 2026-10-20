@@ -1,3 +1,4 @@
+from typing import Any, cast
 from types import SimpleNamespace
 
 import pytest
@@ -8,7 +9,7 @@ from app.services.permissions import resolve_allowed_modules
 from app.services.security import ensure_tenant_access, require_module, require_whatsapp_access
 
 
-def identity(role="viewer", modules=None):
+def identity(role="viewer", modules=None) -> Any:
     return SimpleNamespace(role=role, allowed_modules=modules or [], tenant_id=1, organization_id=2)
 
 
@@ -51,7 +52,7 @@ def test_viewer_can_read_assigned_module():
 
 def test_viewer_cannot_send_from_background_worker():
     with pytest.raises(HTTPException):
-        require_whatsapp_access(user=identity(modules=["whatsapp"]), request=None)
+        require_whatsapp_access(user=identity(modules=["whatsapp"]), request=cast(Request, None))
 
 
 @pytest.mark.parametrize("tenant,organization", [(None, 2), (1, None), (99, 2), (1, 99)])

@@ -14,7 +14,7 @@ class SegmentRequest(PayloadSchema):
 
 
 class SegmentCreateRequest(SegmentRequest):
-    name: str = Field(min_length=1)
+    name: str | None = Field(..., min_length=1)
 
 
 class SegmentUpdateRequest(SegmentRequest):

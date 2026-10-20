@@ -87,8 +87,8 @@ def sync_templates(user: User = Depends(require_module("templates", "whatsapp"))
         else:
             raise HTTPException(502, "Meta template synchronization exceeded the page limit")
         # Mark absent templates inactive after a complete provider snapshot.
-        current = db.scalars(select(WhatsAppTemplate).where(WhatsAppTemplate.tenant_id == user.tenant_id,
-            WhatsAppTemplate.organization_id == user.organization_id).with_for_update()).all()
+        current = list(db.scalars(select(WhatsAppTemplate).where(WhatsAppTemplate.tenant_id == user.tenant_id,
+            WhatsAppTemplate.organization_id == user.organization_id).with_for_update()).all())
         for row in current:
             if (row.targeting or {}).get('waba_id') == connection.waba_id and (row.targeting or {}).get('meta_id') not in {str(i.get('id')) for i in provider_templates}:
                 row.is_active = False

@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -68,9 +70,9 @@ def test_manual_assignment_rejects_invalid_or_extra_fields(changes):
 @pytest.mark.parametrize("days", [True, "30", 0, 3661])
 def test_renewal_days_are_strict_and_bounded(days):
     with pytest.raises(ValidationError):
-        RenewalPayload(request_id="00000000-0000-4000-8000-000000000001", reason="Approved", days=days)
+        RenewalPayload(request_id=UUID("00000000-0000-4000-8000-000000000001"), reason="Approved", days=days)
 
 
 def test_cancellation_boolean_is_strict():
     with pytest.raises(ValidationError):
-        CancellationPayload(request_id="00000000-0000-4000-8000-000000000001", reason="Approved", at_period_end="false")
+        CancellationPayload(request_id=UUID("00000000-0000-4000-8000-000000000001"), reason="Approved", at_period_end=cast(bool, "false"))

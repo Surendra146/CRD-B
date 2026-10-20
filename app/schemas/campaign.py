@@ -19,8 +19,8 @@ class CampaignRequest(PayloadSchema):
 
 
 class CampaignCreateRequest(CampaignRequest):
-    name: str = Field(min_length=1)
-    type: str = Field(min_length=1)
+    name: str | None = Field(..., min_length=1)
+    type: str | None = Field(..., min_length=1)
 
 
 class CampaignUpdateRequest(CampaignRequest):

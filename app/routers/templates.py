@@ -80,7 +80,7 @@ def update_template(template_id: int, payload: TemplateUpdateRequest, user: User
 def delete_template(template_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     template = db.get(WhatsAppTemplate, template_id)
     ensure_tenant_access(template, user, "Template")
-    if (template.workflow or {}).get("submitted") or (template.targeting or {}).get("meta_id"):
+    if template is not None and ((template.workflow or {}).get("submitted") or (template.targeting or {}).get("meta_id")):
         raise HTTPException(409, "Submitted templates are retained for queued messages; deactivate them in Meta instead")
     db.delete(template)
     db.commit()

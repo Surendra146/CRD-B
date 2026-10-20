@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 import time
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import text
@@ -36,7 +37,7 @@ def reproduce_before_fix(operator, control, runtime):
         try:
             authorize(tenant, 'tenant', sub=1, tenant=1, org=1, iat=time.time())
         except DBAPIError as error:
-            assert error.orig.sqlstate == '55P03', error
+            assert getattr(error.orig, 'sqlstate', None) == '55P03', error
             tenant.rollback()
         else:
             raise AssertionError('Expected old cleanup to block runtime authorization')
@@ -46,6 +47,19 @@ def reproduce_before_fix(operator, control, runtime):
 
 
 class ContextContentionCases:
+    # The sandbox test host supplies these fixtures and unittest helpers.
+    if TYPE_CHECKING:
+        actor: Any
+        assertEqual: Any
+        assertIn: Any
+        assertRaises: Any
+        control: Any
+        first: Any
+        operator: Any
+        runtime: Any
+        second: Any
+        tenant: Any
+
     def test_27_overlapping_authorization_does_not_prune_or_wait(self):
         from app.database.authorization import authorize
         marker = seed_expired(self.operator)
