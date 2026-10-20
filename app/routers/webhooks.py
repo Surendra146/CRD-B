@@ -3,6 +3,8 @@ import hashlib
 import hmac
 import json
 import logging
+import re
+import traceback
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -44,10 +46,24 @@ def verify_whatsapp(request: Request):
 async def receive_whatsapp(request: Request, db: Session = Depends(get_control_db)):
     try:
         return await _receive_whatsapp(request, db)
-    except SQLAlchemyError:
-        db.rollback()
-        logger.error('WhatsApp webhook database processing failed; callback may be retried')
+    except SQLAlchemyError as error:
+        _log_database_failure(error)
+        try:
+            db.rollback()
+        except SQLAlchemyError as rollback_error:
+            _log_database_failure(rollback_error)
         raise HTTPException(503, 'Webhook processing temporarily unavailable') from None
+
+
+def _log_database_failure(error):
+    # Never format the exception, SQL, driver diagnostics, source lines or locals.
+    # Even hide_parameters=True does not sanitize driver exception messages.
+    state = getattr(getattr(error, 'orig', None), 'sqlstate', None)
+    state = state if isinstance(state, str) and re.fullmatch(r'[0-9A-Z]{5}', state) else 'unknown'
+    frames = [(frame.filename, frame.lineno, frame.name)
+              for frame in traceback.extract_tb(error.__traceback__)]
+    logger.error('WhatsApp webhook database processing failed; callback may be retried; '
+                 'exception=%s sqlstate=%s frames=%s', type(error).__name__, state, frames)
 
 
 async def _receive_whatsapp(request, db):

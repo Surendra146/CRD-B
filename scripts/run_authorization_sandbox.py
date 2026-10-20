@@ -48,7 +48,7 @@ def main():
         reserve.bind(('127.0.0.1',0)); port=reserve.getsockname()[1]
     passwords={role:secrets.token_urlsafe(32) for role in ('sandbox_bootstrap','sandbox_operator','hanuram_runtime','hanuram_control')}
     # The production-name guard is exercised unchanged in this isolated cluster.
-    database='hanuram_production'
+    database='hanuram_production_ii23'
     marker=secrets.token_hex(32)
     with tempfile.TemporaryDirectory(prefix='hanuram_authorization_') as temp:
         folder=Path(temp); data=folder/'cluster'; pwfile=folder/'bootstrap-password'
@@ -104,7 +104,7 @@ def main():
                     ('ALTER ROLE hanuram_control REPLICATION','ALTER ROLE hanuram_control NOREPLICATION','elevated application login'),
                     ('GRANT unsafe_group TO hanuram_runtime WITH SET FALSE, INHERIT FALSE','REVOKE unsafe_group FROM hanuram_runtime','unexpected role memberships'),
                     ('GRANT hanuram_control TO hanuram_runtime','REVOKE hanuram_control FROM hanuram_runtime','unexpected role memberships'),
-                    ('GRANT CREATE ON DATABASE hanuram_production TO hanuram_control','REVOKE CREATE ON DATABASE hanuram_production FROM hanuram_control','CREATE privileges'),
+                    (f'GRANT CREATE ON DATABASE {database} TO hanuram_control',f'REVOKE CREATE ON DATABASE {database} FROM hanuram_control','CREATE privileges'),
                     ('CREATE TABLE public.unsafe_owned(id integer); ALTER TABLE public.unsafe_owned OWNER TO hanuram_runtime','DROP TABLE public.unsafe_owned','owns database objects'),
                     ('GRANT unsafe_group TO hanuram_identity_owner WITH SET FALSE, INHERIT FALSE','REVOKE unsafe_group FROM hanuram_identity_owner','Unsafe function-owner memberships'),
                     ('GRANT hanuram_jobs_owner TO unsafe_group','REVOKE hanuram_jobs_owner FROM unsafe_group','Unsafe function-owner memberships'),
@@ -133,7 +133,15 @@ def main():
                 run_tests(admin, urls['sandbox_operator'],
                     {kind:env['DATABASE_AUTH_'+kind.upper()+'_KEY'] for kind in ('identity','staff','jobs')})
             run([sys.executable,ROOT/'tests/security/context_contention_cases.py'],cwd=ROOT,env=env)
-            run([sys.executable,'-m','alembic','upgrade','f91c320ab009'],cwd=ROOT,env=env)
+            run([sys.executable,'-m','alembic','upgrade','head'],cwd=ROOT,env=env)
+            # Verify the new migration's reversible trigger change in this cluster.
+            with operator.connect() as connection:
+                before = connection.execute(text("SELECT oid,proowner,proacl::text,proconfig::text FROM pg_proc WHERE oid='hanuram_auth.guard_row()'::regprocedure")).one()
+            run([sys.executable,'-m','alembic','downgrade','f91c320ab011'],cwd=ROOT,env=env)
+            run([sys.executable,'-m','alembic','upgrade','head'],cwd=ROOT,env=env)
+            with operator.connect() as connection:
+                after = connection.execute(text("SELECT oid,proowner,proacl::text,proconfig::text FROM pg_proc WHERE oid='hanuram_auth.guard_row()'::regprocedure")).one()
+                assert before == after, 'Trigger function identity, owner, ACL or search path changed'
             # Bound regressions that would otherwise hang HTTP dependency setup.
             test_env={**env, 'PGOPTIONS':'-c lock_timeout=5000 -c statement_timeout=15000'}
             run([sys.executable,ROOT/'tests/security/test_authorization_roles.py'],cwd=ROOT,env=test_env)

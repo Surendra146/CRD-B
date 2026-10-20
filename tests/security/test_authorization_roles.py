@@ -26,7 +26,7 @@ def assert_sandbox():
     if not raw or not marker:
         raise RuntimeError('Run through scripts/run_authorization_sandbox.py; no existing database is permitted')
     url=make_url(raw)
-    if url.host!='127.0.0.1' or url.database != 'hanuram_production':
+    if url.host!='127.0.0.1' or url.database != 'hanuram_production_ii23':
         raise RuntimeError('Disposable loopback database required')
     operator=create_engine(url,hide_parameters=True)
     with operator.connect() as connection:
@@ -271,6 +271,59 @@ class AuthorizationTests(ContextContentionCases, unittest.TestCase):
                 db.execute(text("UPDATE message_records SET recipient='918888888888'"))
         with Session(self.runtime) as db,self.assertRaises(HTTPException):
             webhook_scope(db,{**resolved,'tenant_id':self.second['tenant_id'],'organization_id':self.second['organization_id']})
+
+    def test_34_delivery_guard_and_retry_regression(self):
+        from types import SimpleNamespace
+        from app.database.authorization import webhook_scope, lookup_webhook
+        from app.routers.webhooks import apply_change
+        from app.models.saas import MessageRecord
+        frozen = (Path(__file__).resolve().parents[2] / 'alembic/authorization/f91c320ab012.sql').read_text()
+        previous = frozen.replace("ARRAY['status','status_timestamp','delivery_details','updated_at']",
+                                  "ARRAY['status','status_timestamp','updated_at']")
+        with Session(self.control) as db:
+            resolved = lookup_webhook(db, 'sandbox_phone', 'sandbox_waba')
+        def event(state, stamp):
+            return {'statuses': [{'id': 'sandbox_message', 'status': state, 'timestamp': str(stamp)}]}
+        # Reproduce revision 011's actual trigger failure on restricted runtime SQL.
+        with self.operator.begin() as connection:
+            connection.execute(text(previous))
+        try:
+            with Session(self.runtime) as db:
+                webhook_scope(db, resolved)
+                with self.assertRaises(DBAPIError) as caught:
+                    apply_change(db, SimpleNamespace(**resolved), event('read', 2000000000))
+                    db.commit()
+                self.assertEqual(caught.exception.orig.sqlstate, '42501')
+                self.assertIn('Webhook cannot replace message identity', str(caught.exception.orig))
+        finally:
+            with self.operator.begin() as connection:
+                connection.execute(text(frozen))
+        # Authorized persistence, replay and older callbacks, across transactions.
+        for state, stamp in [('read', 2000000000), ('read', 2000000000), ('sent', 1999999999)]:
+            with Session(self.runtime) as db:
+                webhook_scope(db, resolved)
+                apply_change(db, SimpleNamespace(**resolved), event(state, stamp))
+                db.commit()
+                record = db.scalar(select(MessageRecord).where(MessageRecord.provider_message_id == 'sandbox_message'))
+                self.assertEqual(record.status, 'read')
+                self.assertEqual(record.status_timestamp, 2000000000)
+                self.assertTrue(record.delivery_details['webhook_received_at'])
+                self.assertTrue(record.delivery_details['read_at'])
+        # Sender/message identity and ownership remain immutable.
+        for column, value in [('recipient', '918888888888'), ('provider_message_id', 'forged'),
+                              ('sender_phone_id', 'forged'), ('id', 'forged'),
+                              ('tenant_id', self.second['tenant_id']),
+                              ('organization_id', self.second['organization_id'])]:
+            with Session(self.runtime) as db:
+                webhook_scope(db, resolved)
+                with self.assertRaises(DBAPIError) as caught:
+                    db.execute(text(f"UPDATE message_records SET {column}=:value WHERE provider_message_id='sandbox_message'"), {'value': value})
+                self.assertEqual(caught.exception.orig.sqlstate, '42501')
+        with Session(self.runtime) as db:
+            self.assertEqual(db.execute(text("UPDATE message_records SET delivery_details='{}'::jsonb")).rowcount, 0)
+        with Session(self.runtime) as db:
+            self.tenant(db, self.second)
+            self.assertEqual(db.execute(text("UPDATE message_records SET delivery_details='{}'::jsonb WHERE provider_message_id='sandbox_message'")).rowcount, 0)
 
     def test_17_staff_read_is_not_mutation_authority(self):
         from app.database.authorization import staff_scope
