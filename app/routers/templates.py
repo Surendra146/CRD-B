@@ -23,10 +23,14 @@ def get_templates(user: User = Depends(require_organization), db: Session = Depe
 
 def template_public(row):
     from app.services.template_workflow import approved_definition
+    from app.services.template_definitions import has_unpublished_edits, rejection_reason
     data = model_to_dict(row)
     approved = approved_definition(row)
     if approved:
         data['workflow'] = {**(row.workflow or {}), 'approved': approved}
+    data['workflow'] = {**(data.get('workflow') or {}),
+                        'rejection_reason': rejection_reason((row.workflow or {}).get('rejection_reason')),
+                        'has_unpublished_edits': has_unpublished_edits(row, approved)}
     return data
 
 
@@ -71,6 +75,10 @@ def update_template(template_id: int, payload: TemplateUpdateRequest, user: User
         payload_data.pop('whatsappTemplateName', None)
         payload_data.pop('isActive', None)
     allowed = {'name', 'category', 'whatsappTemplateName', 'content', 'variables', 'isActive'}
+    from app.services.template_definitions import has_unpublished_edits, draft_signature, media_signature
+    if not (template.workflow or {}).get('draft_baseline') and not has_unpublished_edits(template, legacy):
+        template.workflow = {**(template.workflow or {}), 'draft_baseline': {
+            'definition': draft_signature(template), 'media': media_signature(template)}}
     apply_payload(template, {k: v for k, v in payload_data.items() if k in allowed}, {"whatsappTemplateName": "whatsapp_template_name", "isActive": "is_active"})
     template.workflow = {**(template.workflow or {}), 'draft_revision': (template.workflow or {}).get('draft_revision', 1) + 1}
     db.commit()
@@ -108,7 +116,7 @@ def submit_template(template_id: int, user: User = Depends(require_organization)
 @router.post("/{template_id}/refresh")
 def refresh_template(template_id: int, user: User = Depends(require_organization), db: Session = Depends(get_db)):
     from app.services.template_workflow import refresh
-    return {"success": True, "data": model_to_dict(refresh(db, user, template_id))}
+    return {"success": True, "data": template_public(refresh(db, user, template_id))}
 
 
 @router.post("/{template_id}/media")

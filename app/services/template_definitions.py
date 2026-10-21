@@ -12,6 +12,69 @@ TOKEN = re.compile(r"\{\{\s*([a-zA-Z_][\w.]*|[1-9]\d*)\s*\}\}")
 FIELDS = {'name', 'phone', 'email', 'city', 'lifecycle.segment', 'lifecycle.totalSpent', 'demographics.city'}
 
 
+def rejection_reason(value):
+    if value is None or str(value).strip().casefold() in {'', 'none', 'null', 'undefined'}:
+        return None
+    return str(value).strip()
+
+
+def editable_signature(name, category, content):
+    """Compare provider-visible fields without requiring a draft to be valid."""
+    parts = {str(p.get('type', '')).upper(): p for p in content.get('components', [])}
+    def text(value):
+        value = str(value or '').replace('\r\n', '\n')
+        keys = list(dict.fromkeys(TOKEN.findall(value)))
+        return TOKEN.sub(lambda m: '{{' + (m[1] if m[1].isdigit() else str(keys.index(m[1]) + 1)) + '}}', value)
+    header = content.get('header')
+    if header is None:
+        p = parts.get('HEADER', {})
+        header = {'type': p.get('format', 'NONE'), 'text': p.get('text')}
+    kind = str(header.get('type') or 'NONE').upper()
+    buttons = content.get('buttons', parts.get('BUTTONS', {}).get('buttons', [])) or []
+    return {'name': name, 'category': str(category or '').upper(), 'language': content.get('language'),
+            'header': {'type': kind, 'text': text(header.get('text')) if kind == 'TEXT' else ''},
+            'body': text(content.get('body', parts.get('BODY', {}).get('text'))),
+            'footer': text(content.get('footer', parts.get('FOOTER', {}).get('text'))),
+            'buttons': [dict(type=str(b.get('type') or '').upper(), text=text(b.get('text')),
+                             **({'url': text(b.get('url'))} if str(b.get('type')).upper() == 'URL' else {}),
+                             **({'phone_number': text(b.get('phone_number'))} if str(b.get('type')).upper() == 'PHONE_NUMBER' else {}))
+                        for b in buttons]}
+
+
+def draft_signature(row):
+    content = row.content or {}
+    name = content.get('meta_name') or row.whatsapp_template_name or row.name
+    workflow = row.workflow or {}
+    baseline = workflow.get('draft_baseline')
+    if not content.get('meta_name') and baseline and any(
+        name == (workflow.get(key) or {}).get('name') for key in ('submitted', 'approved')
+    ):
+        name = baseline['definition']['name']
+    return editable_signature(name, row.category, content)
+
+
+def media_signature(row):
+    header = (row.content or {}).get('header') or {}
+    if str(header.get('type', '')).upper() not in {'IMAGE', 'VIDEO', 'DOCUMENT'}:
+        return None
+    selected = header.get('asset_id')
+    asset = next((a for a in (row.workflow or {}).get('assets', []) if a.get('id') == selected), {})
+    return asset.get('sha256') or selected
+
+
+def has_unpublished_edits(row, approved=None):
+    workflow = row.workflow or {}
+    current = draft_signature(row)
+    baseline = workflow.get('draft_baseline')
+    if baseline:
+        return current != baseline['definition'] or media_signature(row) != baseline.get('media')
+    definition = workflow.get('submitted') or approved or workflow.get('approved')
+    if not definition:
+        return True
+    expected = editable_signature(definition.get('name'), definition.get('category'), definition)
+    return current != expected
+
+
 def invalid(message):
     raise HTTPException(422, message)
 

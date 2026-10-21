@@ -243,3 +243,124 @@ def test_video_codec_validation(monkeypatch):
     valid['streams'][1]['codec_name'] = 'opus'
     with pytest.raises(HTTPException) as error: validate_media(b'\0\0\0\x18ftypisom' + b'\0' * 16, 'video/mp4')
     assert error.value.status_code == 422
+
+@pytest.mark.parametrize('reason', [None, '', 'NONE', 'none', ' undefined ', 'null'])
+def test_empty_rejection_reason(reason):
+    from app.services.template_definitions import rejection_reason
+    assert rejection_reason(reason) is None
+
+
+def test_real_rejection_reason():
+    from app.services.template_definitions import rejection_reason
+    assert rejection_reason('Policy violation') == 'Policy violation'
+
+
+def synced_row():
+    r = row()
+    d = definition()
+    item = {**d, 'id': 'meta1', 'status': 'APPROVED', 'rejected_reason': 'NONE'}
+    merge_provider(r, item, 'waba', 'sender')
+    return r, item
+
+
+def test_legacy_synced_baseline_ignores_revision_and_metadata():
+    from app.services.template_definitions import has_unpublished_edits
+    r, item = synced_row()
+    r.workflow['draft_revision'] = 99
+    assert r.workflow['rejection_reason'] is None
+    assert not has_unpublished_edits(r)
+    assert r.workflow['draft_baseline']
+    item['components'].reverse()
+    merge_provider(r, item, 'waba', 'sender')
+    assert not has_unpublished_edits(r)
+
+
+@pytest.mark.parametrize('change', [
+    lambda c: c.update(body='A changed body'),
+    lambda c: c['header'].update(text='A changed header'),
+    lambda c: c['buttons'][0].update(text='Changed button'),
+    lambda c: c.update(language='hi'),
+    lambda c: c.update(meta_name='different_name'),
+])
+def test_real_drafts_survive_sync(change):
+    from app.services.template_definitions import has_unpublished_edits
+    r, item = synced_row()
+    change(r.content)
+    expected = copy.deepcopy(r.content)
+    assert has_unpublished_edits(r)
+    merge_provider(r, item, 'waba', 'sender')
+    assert r.content == expected
+    assert has_unpublished_edits(r)
+
+
+def test_legacy_modified_content_is_not_baselined_away():
+    from app.services.template_definitions import has_unpublished_edits
+    r, item = synced_row()
+    r.workflow.pop('draft_baseline')
+    r.content['body'] = 'A real local change'
+    merge_provider(r, item, 'waba', 'sender')
+    assert has_unpublished_edits(r)
+    assert 'draft_baseline' not in r.workflow
+
+
+def test_media_compares_content_hash_not_internal_asset_id():
+    from app.services.template_definitions import has_unpublished_edits
+    r = row()
+    r.content['header'] = {'type': 'IMAGE', 'asset_id': 'a'}
+    r.workflow = {'assets': [{'id': 'a', 'sha256': 'same'}, {'id': 'b', 'sha256': 'same'}, {'id': 'c', 'sha256': 'changed'}]}
+    item = {**compile_draft('welcome', r.category, r.content), 'id': 'meta1', 'status': 'APPROVED'}
+    merge_provider(r, item, 'waba', 'sender')
+    r.content['header']['asset_id'] = 'b'
+    assert not has_unpublished_edits(r)
+    r.content['header']['asset_id'] = 'c'
+    assert has_unpublished_edits(r)
+
+@pytest.mark.parametrize('edited', [False, True])
+def test_refresh_recalculates_state_without_overwriting_draft(monkeypatch, edited):
+    from app.services import template_workflow as service
+    from app.services.template_definitions import has_unpublished_edits
+    r, item = synced_row()
+    if edited:
+        r.content['body'] = 'Unsubmitted local message'
+    original = copy.deepcopy(r.content)
+    db = Mock(); db.scalar.return_value = r
+    user = SimpleNamespace(tenant_id=7, organization_id=8)
+    monkeypatch.setattr(service, 'resolve_credentials', lambda *a: SimpleNamespace(
+        whatsapp_waba_id='waba', whatsapp_phone_number_id='sender', whatsapp_access_token='secret'))
+    monkeypatch.setattr(service, 'graph', Mock(return_value=item))
+    refresh(db, user, 1)
+    assert r.content == original
+    assert has_unpublished_edits(r) is edited
+    assert r.workflow['rejection_reason'] is None
+
+
+def test_rejected_sync_keeps_actual_reason():
+    r, item = synced_row()
+    item.update(status='REJECTED', rejected_reason='Policy violation')
+    merge_provider(r, item, 'waba', 'sender')
+    assert r.workflow['rejection_reason'] == 'Policy violation'
+
+
+def test_generated_submission_name_is_not_a_local_edit(monkeypatch):
+    from app.services import template_workflow as service
+    from app.services.template_definitions import has_unpublished_edits
+    r, item = synced_row()
+    r.content['body'] = 'Updated body'
+    db = Mock(); db.scalar.return_value = r; db.scalars.return_value.all.return_value = []
+    monkeypatch.setattr(service, 'resolve_credentials', lambda *a: SimpleNamespace(
+        whatsapp_waba_id='waba', whatsapp_phone_number_id='sender', whatsapp_access_token='secret'))
+    graph = Mock(return_value={'id': 'new', 'status': 'PENDING'})
+    monkeypatch.setattr(service, 'graph', graph)
+    submit(db, SimpleNamespace(tenant_id=7, organization_id=8), 1)
+    assert '_r' in r.workflow['submitted']['name']
+    assert not has_unpublished_edits(r)
+    item = {**r.workflow['submitted'], 'id': 'new', 'status': 'APPROVED'}
+    merge_provider(r, item, 'waba', 'sender')
+    assert not has_unpublished_edits(r)
+
+
+def test_positional_variable_change_is_meaningful():
+    from app.services.template_definitions import editable_signature
+    first = editable_signature('a', 'UTILITY', {'body': 'Hi {{1}} and {{2}}'})
+    swapped = editable_signature('a', 'UTILITY', {'body': 'Hi {{2}} and {{1}}'})
+    assert first != swapped

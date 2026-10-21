@@ -11,6 +11,7 @@ from app.services.security import ensure_tenant_access
 from app.services.whatsapp_connections import resolve_credentials, graph
 from app.services.template_definitions import compile_draft, outgoing, provider_definition
 from app.services.template_media import asset, sample_handle, sending_media
+from app.services.template_definitions import rejection_reason, draft_signature, media_signature, has_unpublished_edits, editable_signature
 
 
 def timestamp():
@@ -49,7 +50,7 @@ def merge_provider(row, item, waba_id, sender, started=None):
     if not previous and not approved and item['status'] != 'APPROVED':
         workflow['submitted'] = definition
     if submitted_match or not previous:
-        workflow.update(status=item['status'], rejection_reason=item.get('rejected_reason'), synced_at=timestamp())
+        workflow.update(status=item['status'], rejection_reason=rejection_reason(item.get('rejected_reason')), synced_at=timestamp())
     if item['status'] == 'APPROVED':
         if approved and approved.get('meta_id') != definition.get('meta_id'):
             workflow['approved_history'] = [*workflow.get('approved_history', []), approved]
@@ -66,6 +67,15 @@ def merge_provider(row, item, waba_id, sender, started=None):
         row.stats = {**(row.stats or {}), 'meta_status': item['status'], 'synced_at': timestamp()}
         row.is_active = item['status'] == 'APPROVED'
     row.workflow = workflow
+    if workflow.get('draft_baseline') and (submitted_match or not previous):
+        baseline = workflow['draft_baseline']
+        signature = editable_signature(definition['name'], definition['category'], definition)
+        # Generated revision names belong to the submission, not the editable name.
+        signature['name'] = baseline['definition']['name']
+        workflow['draft_baseline'] = {**baseline, 'definition': signature}
+        row.workflow = workflow
+    if not workflow.get('draft_baseline') and not has_unpublished_edits(row):
+        row.workflow = {**workflow, 'draft_baseline': {'definition': draft_signature(row), 'media': media_signature(row)}}
     return True
 
 
@@ -102,6 +112,7 @@ def submit(db, user, template_id):
         definition['components'][0]['example'] = {'header_handle': [handle]}
     workflow.update(status='SUBMITTING', submitted=definition, submitted_at=timestamp(), rejection_reason=None,
                     submitted_revision=workflow.get('draft_revision', 1), submitted_fingerprint=fingerprint, submission_error=None)
+    workflow['draft_baseline'] = {'definition': draft_signature(row), 'media': media_signature(row)}
     row.workflow = workflow
     db.commit()  # A timeout/restart leaves an explicit reconciliation state.
     try:
