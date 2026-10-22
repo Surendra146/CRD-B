@@ -85,6 +85,31 @@ def resolve_credentials(db, user, phone_number_id=None):
     )
 
 
+def resolve_marketing_credentials(db, user):
+    """Resolve a tenant's sender independently of all client-supplied IDs."""
+    rows = db.scalars(select(WhatsAppConnection).where(
+        WhatsAppConnection.tenant_id == tenant_id_for_user(user),
+        WhatsAppConnection.organization_id == user.organization_id,
+    )).all()
+    if not rows:
+        raise HTTPException(409, 'No connected WhatsApp Business account. Please complete WhatsApp onboarding.')
+    eligible = []
+    failures = []
+    for row in rows:
+        try:
+            eligible.append((row, resolve_credentials(db, user, row.phone_number_id)))
+        except HTTPException as error:
+            if error.status_code != 409:
+                raise
+            failures.append(error)
+    if not eligible:
+        raise failures[0]
+    defaults = [(row, credentials) for row, credentials in eligible if row.is_default]
+    if len(defaults) > 1 or (len(eligible) > 1 and not defaults):
+        raise HTTPException(409, 'Configure a default WhatsApp marketing sender in Settings before sending.')
+    return (defaults[0] if defaults else eligible[0])[1]
+
+
 def public_connection(connection):
     if not connection:
         return {"connected": False}

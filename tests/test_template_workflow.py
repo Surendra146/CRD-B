@@ -72,6 +72,39 @@ def test_unresolved_recipient_never_sent():
         outgoing(definition(), {'phone': '456'})
 
 
+def test_named_provider_parameters_and_copy_code():
+    from app.services.template_definitions import rendered_body
+    d = {'name': 'offer', 'language': 'en_US', 'category': 'MARKETING', 'components': [
+        {'type': 'BODY', 'text': 'Hi {{first_name}}, welcome {{first_name}}'},
+        {'type': 'BUTTONS', 'buttons': [{'type': 'COPY_CODE', 'text': 'Copy code'}]},
+    ]}
+    with pytest.raises(HTTPException):
+        outgoing(d, {'name': 'Asha'})
+    payload = outgoing(d, {'name': 'Asha', 'phone': 'SAVE10'}, mappings={'body': ['name'], 'button_0': ['phone']})
+    assert payload['components'][0]['parameters'] == [{'type': 'text', 'text': 'Asha', 'parameter_name': 'first_name'}]
+    assert payload['components'][1] == {'type': 'button', 'sub_type': 'copy_code', 'index': '0',
+                                      'parameters': [{'type': 'coupon_code', 'coupon_code': 'SAVE10'}]}
+    assert rendered_body(d, payload) == 'Hi Asha, welcome Asha'
+    fixed = outgoing(d, {}, mappings={'body': [{'value': 'Asha'}], 'button_0': [{'value': 'SAVE10'}]})
+    assert fixed == payload
+    with pytest.raises(HTTPException):
+        outgoing(d, {}, mappings={'body': [{'value': ''}], 'button_0': [{'value': 'SAVE10'}]})
+
+
+@pytest.mark.parametrize('status', ['PAUSED', 'DISABLED', 'REJECTED', 'DELETED'])
+def test_worker_checks_live_meta_approval(monkeypatch, status):
+    from app.services import template_workflow as service
+    r = row()
+    d = {**definition(), 'meta_id': '123', 'waba_id': '55'}
+    r.workflow = {'approved': d}
+    r.stats = {'meta_status': 'APPROVED'}
+    monkeypatch.setattr(service, 'owned', lambda *args: r)
+    monkeypatch.setattr(service, 'graph', lambda *args, **kwargs: {'id': '123', 'status': status})
+    with pytest.raises(HTTPException) as error:
+        service.verify_queued(None, None, {'template_id': 1, 'definition': d}, SimpleNamespace(whatsapp_waba_id='55', whatsapp_access_token='secret'))
+    assert error.value.status_code == 409
+
+
 @pytest.mark.parametrize('kind', ['IMAGE', 'VIDEO', 'DOCUMENT'])
 def test_media_header_exact_outgoing(kind):
     c = draft(); c['header'] = {'type': kind, 'asset_id': 'owned'}

@@ -4,7 +4,7 @@ from typing import cast
 
 from celery import Celery
 from celery.app.task import Task
-from fastapi import Request
+from fastapi import Request, HTTPException
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
@@ -54,7 +54,7 @@ def deliver_job(job_id, tenant_id, organization_id, claim=None):
     from app.models.saas import CampaignOutbox
     from app.database.tenancy import bind_scope
     from app.services.security import require_whatsapp_access
-    from app.services.whatsapp_connections import resolve_credentials
+    from app.services.whatsapp_connections import resolve_marketing_credentials
     from app.routers.communications import dispatch_bulk_job
     from app.database.authorization import enabled, claim_campaign, campaign_scope
     if enabled():
@@ -90,13 +90,26 @@ def deliver_job(job_id, tenant_id, organization_id, claim=None):
                 return
             require_whatsapp_access(request=cast(Request, None), user=user)
             sender = job.audience_payload.get("sender_phone_number_id")
-            credentials = resolve_credentials(db, user, sender)
+            credentials = resolve_marketing_credentials(db, user)
+            if credentials.whatsapp_phone_number_id != sender:
+                raise HTTPException(409, "The campaign sender has changed; recreate the campaign")
             job.status = "in_progress"
             db.commit()
             dispatch_bulk_job(db, job, credentials)
             outbox = db.scalar(select(CampaignOutbox).where(CampaignOutbox.bulk_job_id == job_id))
             if outbox:
                 outbox.status = "completed"
+            db.commit()
+        except HTTPException as error:
+            db.rollback()
+            db.refresh(job, with_for_update=True)
+            job.recipients_summary = [
+                {**recipient, "status": "failed", "error": error.detail}
+                if recipient.get("status") == "queued" else recipient
+                for recipient in job.recipients_summary
+            ]
+            from app.services.meta_whatsapp import update_stats
+            update_stats(job)
             db.commit()
         finally:
             lock.execute(__import__('sqlalchemy').text("SELECT pg_advisory_unlock(:key)"), {"key": job_id})

@@ -146,10 +146,10 @@ def refresh(db, user, template_id):
         raise HTTPException(409, 'Reconnect the original WABA before refreshing this template')
     if definition.get('meta_id'):
         item = graph(definition['meta_id'], connection.whatsapp_access_token,
-                     params={'fields': 'id,name,status,category,language,components,rejected_reason'})
+                     params={'fields': 'id,name,status,category,language,components,rejected_reason,parameter_format'})
     else:
         response = graph(connection.whatsapp_waba_id + '/message_templates', connection.whatsapp_access_token,
-                         params={'name': definition['name'], 'fields': 'id,name,status,category,language,components,rejected_reason', 'limit': 100})
+                         params={'name': definition['name'], 'fields': 'id,name,status,category,language,components,rejected_reason,parameter_format', 'limit': 100})
         item = next((i for i in response.get('data', []) if i['name'] == definition['name'] and i['language'] == definition['language']), None)
         if not item:
             submitted_at = (row.workflow or {}).get('submitted_at')
@@ -217,6 +217,11 @@ def verify_queued(db, user, snapshot, connection):
     definition = snapshot['definition']
     if definition.get('waba_id') != connection.whatsapp_waba_id:
         raise HTTPException(409, 'Queued template belongs to another WABA')
+    if not definition.get('meta_id'):
+        raise HTTPException(409, 'Synchronize this template before sending')
+    status = graph(definition['meta_id'], connection.whatsapp_access_token, params={'fields': 'id,status'})
+    if status.get('status') != 'APPROVED':
+        raise HTTPException(409, 'Queued template is no longer approved by Meta; refresh templates')
     current = approved_definition(row) or {}
     if definition.get('meta_id') == current.get('meta_id'):
         if not row.is_active or (row.stats or {}).get('meta_status') != 'APPROVED':
@@ -225,7 +230,4 @@ def verify_queued(db, user, snapshot, connection):
         historical = next((d for d in (row.workflow or {}).get('approved_history', []) if d.get('meta_id') == definition.get('meta_id')), None)
         if not historical:
             raise HTTPException(409, 'Queued approved version is unavailable; recreate the campaign')
-        status = graph(definition['meta_id'], connection.whatsapp_access_token, params={'fields': 'id,status'})
-        if status.get('status') != 'APPROVED':
-            raise HTTPException(409, 'Queued historical version is no longer approved by Meta')
     return row

@@ -22,7 +22,7 @@ def settings(monkeypatch):
     settings = SimpleNamespace(whatsapp_provider="meta_cloud", whatsapp_phone_number_id="123", whatsapp_access_token="private-token", whatsapp_graph_version="v23.0", meta_app_secret="test-app-secret")
     monkeypatch.setattr(meta, "get_settings", lambda: settings)
     monkeypatch.setattr(webhooks, "get_settings", lambda: settings)
-    monkeypatch.setattr(communications, "resolve_credentials", lambda db, user: settings)
+    monkeypatch.setattr(communications, "resolve_marketing_credentials", lambda db, user: settings)
     return settings
 
 

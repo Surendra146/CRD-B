@@ -36,7 +36,7 @@ def dispatch_due_job(session_factory):
         return True
     from app.models import WhatsAppBulkJob, User
     from app.services.security import require_whatsapp_access
-    from app.services.whatsapp_connections import resolve_credentials
+    from app.services.whatsapp_connections import resolve_marketing_credentials
     from app.routers.communications import dispatch_bulk_job
 
     with session_factory() as db:
@@ -53,7 +53,7 @@ def dispatch_due_job(session_factory):
             if not user or user.tenant_id != job.tenant_id or user.organization_id != job.organization_id or not user.is_active:
                 raise HTTPException(403, "Campaign creator no longer has access to this organization")
             require_whatsapp_access(request=None, user=user)
-            connection = resolve_credentials(db, user, job.audience_payload.get("sender_phone_number_id"))
+            connection = resolve_marketing_credentials(db, user)
             if connection.whatsapp_phone_number_id != job.audience_payload.get("sender_phone_number_id"):
                 raise HTTPException(409, "The campaign's WhatsApp sender has changed; create a new campaign")
             dispatch_bulk_job(db, job, connection)

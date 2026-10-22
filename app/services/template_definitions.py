@@ -1,4 +1,4 @@
-"""Positional standard templates: validation, conversion and recipient resolution.
+"""Standard templates: validation, conversion and recipient resolution.
 
 Deliberately excludes authentication, location, carousel, flows and commerce.
 Only immutable provider-approved snapshots are used to build outgoing templates.
@@ -212,10 +212,16 @@ def provider_definition(item, previous=None):
     header = next((p for p in components if p.get('type') == 'HEADER'), {})
     return {'name': item['name'], 'language': item['language'], 'category': item['category'],
             'components': components, 'parameters': copy.deepcopy(previous.get('parameters', {})) if same else {},
-            'header_type': header.get('format', 'NONE'), 'meta_id': str(item['id'])}
+            'header_type': header.get('format', 'NONE'), 'meta_id': str(item['id']),
+            'parameter_format': item.get('parameter_format', 'POSITIONAL')}
 
 
 def resolve_value(spec, recipient):
+    if 'value' in spec:
+        value = spec['value']
+        if not isinstance(value, str) or not value.strip() or '{{' in value:
+            invalid('Supply a nonempty template parameter value without placeholders')
+        return value
     value = recipient
     if spec['field'] == 'city':
         value = recipient.get('city') or (recipient.get('demographics') or {}).get('city')
@@ -242,9 +248,13 @@ def outgoing(definition, recipient, media_id=None, mappings=None):
     params = copy.deepcopy(definition.get('parameters') or {})
     # External templates can receive explicit mappings, never provider components.
     for scope, fields in (mappings or {}).items():
-        if not isinstance(fields, list) or any(not isinstance(f, str) or f.removeprefix('customer.') not in FIELDS for f in fields):
+        if not isinstance(fields, list) or any(
+            not (isinstance(f, str) and f.removeprefix('customer.') in FIELDS)
+            and not (isinstance(f, dict) and set(f) == {'value'} and isinstance(f['value'], str))
+            for f in fields
+        ):
             invalid('Unsupported send-time recipient mapping')
-        params[scope] = [{'field': f.removeprefix('customer.')} for f in fields]
+        params[scope] = [dict(f) if isinstance(f, dict) else {'field': f.removeprefix('customer.')} for f in fields]
     result = {'name': definition['name'], 'language': {'code': definition['language']}, 'components': []}
     for part in parts:
         kind = part.get('type')
@@ -257,18 +267,30 @@ def outgoing(definition, recipient, media_id=None, mappings=None):
             invalid('Unsupported header format')
         elif kind in {'HEADER', 'BODY'}:
             scope = kind.lower()
-            keys = set(TOKEN.findall(part.get('text') or ''))
-            if keys and keys != {str(i + 1) for i in range(len(keys))}:
-                invalid('Only standard positional Meta templates are supported; named provider parameters are unsupported')
+            keys = list(dict.fromkeys(TOKEN.findall(part.get('text') or '')))
+            named = bool(keys) and all(not key.isdigit() for key in keys)
+            if not named and keys and set(keys) != {str(i + 1) for i in range(len(keys))}:
+                invalid('Template parameters must be sequential positions or consistently named')
             specs = params.get(scope) or []
             if len(specs) != len(keys):
                 invalid(f'{scope}: supply all required recipient mappings')
             if specs:
-                result['components'].append({'type': scope, 'parameters': [{'type': 'text', 'text': resolve_value(s, recipient)} for s in specs]})
+                result['components'].append({'type': scope, 'parameters': [
+                    {'type': 'text', 'text': resolve_value(s, recipient), **({'parameter_name': keys[i]} if named else {})}
+                    for i, s in enumerate(specs)]})
         elif kind == 'BUTTONS':
             for i, button in enumerate(part.get('buttons') or []):
-                if button.get('type') not in {'URL', 'PHONE_NUMBER', 'QUICK_REPLY'}:
+                if button.get('type') not in {'URL', 'PHONE_NUMBER', 'QUICK_REPLY', 'COPY_CODE'}:
                     invalid('Unsupported template button')
+                if button.get('type') == 'COPY_CODE':
+                    specs = params.get(f'button_{i}') or []
+                    if len(specs) != 1:
+                        invalid(f'button_{i}: supply its coupon code mapping')
+                    code = resolve_value(specs[0], recipient)
+                    if len(code) > 15 or any(c.isspace() for c in code):
+                        invalid(f'button_{i}: coupon code must contain 1 to 15 characters without spaces')
+                    result['components'].append({'type': 'button', 'sub_type': 'copy_code', 'index': str(i),
+                        'parameters': [{'type': 'coupon_code', 'coupon_code': code}]})
                 if button.get('type') == 'URL' and TOKEN.search(button.get('url') or ''):
                     specs = params.get(f'button_{i}') or []
                     if len(specs) != 1:
@@ -282,4 +304,5 @@ def rendered_body(definition, payload):
     """Retain the approved personalized text in queue/delivery audit views."""
     text = next((p.get('text', '') for p in definition['components'] if p.get('type') == 'BODY'), '')
     parameters = next((p.get('parameters', []) for p in payload.get('components', []) if p.get('type') == 'body'), [])
-    return TOKEN.sub(lambda match: parameters[int(match.group(1)) - 1]['text'], text)
+    named = {parameter.get('parameter_name'): parameter['text'] for parameter in parameters}
+    return TOKEN.sub(lambda match: parameters[int(match.group(1)) - 1]['text'] if match.group(1).isdigit() else named[match.group(1)], text)

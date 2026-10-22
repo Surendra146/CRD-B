@@ -189,7 +189,6 @@ def launch_campaign(campaign_id: int, user: User = Depends(require_organization)
                      'lifecycle': c.lifecycle or {}, 'demographics': c.demographics or {}} for c in customers]},
         "template": {"id": template.id, 'media_asset_id': audience.get('template_media_asset_id'),
                      'mappings': audience.get('template_mappings') or {}},
-        'sender_phone_number_id': audience.get('sender_phone_number_id') or definition.get('sender_phone_number_id'),
         "scheduled_at": validate_campaign_schedule(campaign.schedule or {}).get("scheduledAt"),
     })
     try:

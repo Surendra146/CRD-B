@@ -11,6 +11,36 @@ from app.services import whatsapp_connections as connections, meta_whatsapp
 from app.routers.whatsapp_connections import attempt_for, ExchangeRequest
 
 
+@pytest.mark.parametrize('defaults,selected', [([False], '1'), ([False, True], '2'), ([False, False], None), ([], None), ([True, True], None)])
+def test_marketing_sender_resolution_is_tenant_scoped(monkeypatch, defaults, selected):
+    rows = [SimpleNamespace(phone_number_id=str(i + 1), is_default=default) for i, default in enumerate(defaults)]
+    class DB:
+        def scalars(self, statement):
+            params = statement.compile().params
+            assert params['tenant_id_1'] == 7
+            assert params['organization_id_1'] == 9
+            return SimpleNamespace(all=lambda: rows)
+    monkeypatch.setattr(connections, 'resolve_credentials', lambda db, user, phone: phone)
+    user = SimpleNamespace(tenant_id=7, organization_id=9)
+    if selected is None:
+        with pytest.raises(HTTPException) as error:
+            connections.resolve_marketing_credentials(DB(), user)
+        assert error.value.status_code == 409
+    else:
+        assert connections.resolve_marketing_credentials(DB(), user) == selected
+
+
+def test_marketing_sender_ignores_ineligible_connections(monkeypatch):
+    rows = [SimpleNamespace(phone_number_id='expired', is_default=False), SimpleNamespace(phone_number_id='active', is_default=False)]
+    db = SimpleNamespace(scalars=lambda statement: SimpleNamespace(all=lambda: rows))
+    def validate(db, user, phone):
+        if phone == 'expired':
+            raise HTTPException(409, 'Reconnect in Settings')
+        return phone
+    monkeypatch.setattr(connections, 'resolve_credentials', validate)
+    assert connections.resolve_marketing_credentials(db, SimpleNamespace(tenant_id=7, organization_id=9)) == 'active'
+
+
 @pytest.fixture
 def config(monkeypatch):
     config = SimpleNamespace(whatsapp_token_encryption_key=Fernet.generate_key().decode(), meta_app_secret="private-secret", meta_app_id="111", whatsapp_signup_config_id="222", whatsapp_graph_version="v23.0", enforce_subscription=True)

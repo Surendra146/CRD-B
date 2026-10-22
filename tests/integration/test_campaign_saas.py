@@ -38,7 +38,7 @@ def test_template_approval_is_scoped_to_tenant_and_waba(account, account_factory
 def test_campaign_launch_queues_once_and_pause_resume_preserve_outbox(client, account, db_session, monkeypatch):
     from app.routers import communications
     monkeypatch.setattr(get_settings(), 'campaign_transport', 'celery')
-    monkeypatch.setattr(communications, 'resolve_credentials', lambda *args: SimpleNamespace(
+    monkeypatch.setattr(communications, 'resolve_marketing_credentials', lambda *args: SimpleNamespace(
         whatsapp_phone_number_id='333', whatsapp_access_token='test-token', whatsapp_waba_id='444',
         whatsapp_graph_version='v25.0', whatsapp_provider='meta'))
     monkeypatch.setattr(communications, 'require_configuration', lambda *args: None)

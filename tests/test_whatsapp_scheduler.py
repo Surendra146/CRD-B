@@ -28,7 +28,7 @@ def test_scheduled_submission_does_not_call_meta(monkeypatch):
     from app.routers import communications
     from app.schemas.whatsapp_marketing import WhatsAppBulkSendRequest
     connection = SimpleNamespace(whatsapp_phone_number_id="123")
-    monkeypatch.setattr(communications, "resolve_credentials", lambda *args: connection)
+    monkeypatch.setattr(communications, "resolve_marketing_credentials", lambda *args: connection)
     monkeypatch.setattr(communications, "require_configuration", lambda *args: None)
     monkeypatch.setattr(communications, "send_message", lambda *args, **kwargs: pytest.fail("Scheduled submission must not send"))
     monkeypatch.setattr(communications, "model_to_dict", lambda job: {"status": job.status, "stats": job.stats})
@@ -66,7 +66,7 @@ def test_worker_claims_job_before_dispatch_and_does_not_repeat(monkeypatch):
         assert db.committed == "in_progress"
         calls.append(job)
     monkeypatch.setattr(communications, "dispatch_bulk_job", dispatch)
-    monkeypatch.setattr(whatsapp_connections, "resolve_credentials", lambda *args: SimpleNamespace(whatsapp_phone_number_id="123"))
+    monkeypatch.setattr(whatsapp_connections, "resolve_marketing_credentials", lambda *args: SimpleNamespace(whatsapp_phone_number_id="123"))
     assert whatsapp_scheduler.dispatch_due_job(lambda: db) is True
     assert whatsapp_scheduler.dispatch_due_job(lambda: db) is False
     assert calls == [job]
@@ -88,7 +88,7 @@ def test_worker_does_not_send_when_sender_has_changed(monkeypatch):
         def rollback(self): pass
         def refresh(self, *args, **kwargs): pass
     monkeypatch.setattr(communications, "dispatch_bulk_job", lambda *args: pytest.fail("Changed sender must not dispatch"))
-    monkeypatch.setattr(whatsapp_connections, "resolve_credentials", lambda *args: SimpleNamespace(whatsapp_phone_number_id="456"))
+    monkeypatch.setattr(whatsapp_connections, "resolve_marketing_credentials", lambda *args: SimpleNamespace(whatsapp_phone_number_id="456"))
     assert whatsapp_scheduler.dispatch_due_job(DB) is True
     assert job.status == "failed"
     assert "sender has changed" in job.recipients_summary[0]["error"]

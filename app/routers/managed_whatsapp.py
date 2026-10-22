@@ -72,7 +72,7 @@ def sync_templates(user: User = Depends(require_module("templates", "whatsapp"))
         after = None
         provider_templates = []
         for _ in range(100):
-            params = {"fields": "id,name,status,category,language,components,rejected_reason", "limit": 100}
+            params = {"fields": "id,name,status,category,language,components,rejected_reason,parameter_format", "limit": 100}
             if after:
                 params["after"] = after
             page = graph(connection.waba_id + "/message_templates", token, params=params)

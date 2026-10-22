@@ -18,7 +18,7 @@ from app.services.security import (
 from app.services.whatsapp_service import personalize_message
 from app.services.whatsapp_scheduler import parse_schedule
 from app.services.meta_whatsapp import build_message, require_configuration, send_message, update_stats
-from app.services.whatsapp_connections import get_connection, resolve_credentials, public_connection
+from app.services.whatsapp_connections import resolve_marketing_credentials
 from app.utils.helpers import model_to_dict
 from app.config.settings import get_settings
 from app.services.consent import assert_send_allowed, record_message
@@ -34,7 +34,7 @@ def send_whatsapp(payload: CommunicationRequest, user: User = Depends(require_or
     payload_data = communication_payload(payload)
     if get_settings().enforce_subscription:
         require_paid_subscription(db, user)
-    credentials = resolve_credentials(db, user, payload_data.get("sender_phone_number_id")) if payload_data.get("sender_phone_number_id") else resolve_credentials(db, user)
+    credentials = resolve_marketing_credentials(db, user)
     recipient = payload_data.get('recipient') or {}
     if not isinstance(recipient, dict):
         raise HTTPException(422, 'Recipient context must be an object')
@@ -110,7 +110,7 @@ def send_bulk_whatsapp(
     scheduled_at = parse_schedule(scheduled_at_raw)
     if get_settings().enforce_subscription:
         require_paid_subscription(db, user)
-    connection = resolve_credentials(db, user, req.get("sender_phone_number_id")) if req.get("sender_phone_number_id") else resolve_credentials(db, user)
+    connection = resolve_marketing_credentials(db, user)
     require_configuration(connection)
 
     # Resolve target recipients
@@ -339,10 +339,19 @@ def list_bulk_jobs(
 def whatsapp_configuration(user: User = Depends(require_organization), db: Session = Depends(get_db)):
     from app.config.settings import get_settings
     settings = get_settings()
-    connection = public_connection(get_connection(db, user))
+    sender = None
+    sender_error = None
+    try:
+        credentials = resolve_marketing_credentials(db, user)
+        sender = {"phone_number_id": credentials.whatsapp_phone_number_id, "waba_id": credentials.whatsapp_waba_id}
+    except HTTPException as error:
+        sender_error = error.detail
+    connection = {"connected": sender is not None}
     return {"success": True, "data": {
         "organization_id": user.organization_id,
         "max_broadcast_recipients": settings.max_broadcast_recipients,
+        "sender": sender,
+        "sender_error": sender_error,
         "sender_configured": connection["connected"],
         "webhook_secret_configured": bool(settings.meta_app_secret),
         "organization_authorized": connection["connected"],

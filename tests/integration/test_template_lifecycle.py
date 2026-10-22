@@ -39,7 +39,7 @@ def test_submit_refresh_edit_and_per_recipient_send(client, account, db_session,
     from app.services import template_workflow as workflow
     from app.routers import communications
     monkeypatch.setattr(workflow, 'resolve_credentials', lambda *a: credentials())
-    monkeypatch.setattr(communications, 'resolve_credentials', lambda *a: credentials())
+    monkeypatch.setattr(communications, 'resolve_marketing_credentials', lambda *a: credentials())
     calls = []
     monkeypatch.setattr(communications, 'send_message', lambda phone, text, **kw: calls.append(kw['template']) or {'message_id': f'wamid.{phone}', 'status': 'accepted', 'phone': phone})
     meta = {'id': '123', 'status': 'PENDING'}
@@ -88,7 +88,7 @@ def test_queued_media_retains_version_and_reuploads_at_dispatch(client, account,
     from app.routers import communications
     from app.services import template_workflow as workflow
     monkeypatch.setenv('WHATSAPP_TEMPLATE_MEDIA_ROOT', str(tmp_path))
-    monkeypatch.setattr(communications, 'resolve_credentials', lambda *a: credentials())
+    monkeypatch.setattr(communications, 'resolve_marketing_credentials', lambda *a: credentials())
     identifier = new_template(client, account)
     uploaded = client.post(f'/api/templates/{identifier}/media', headers=account['headers'], files={'file': ('real.png', image_bytes(), 'image/png')})
     asset_id = uploaded.json()['data']['id']
