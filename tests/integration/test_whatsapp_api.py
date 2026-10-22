@@ -7,6 +7,7 @@ import pytest
 
 from app.config.settings import get_settings
 from app.routers import communications
+from app.services.whatsapp_scheduler import dispatch_due_job
 
 pytestmark = pytest.mark.integration
 
@@ -62,8 +63,17 @@ def test_scheduled_job_waits_then_dispatches_once(client, account, monkeypatch, 
     from app.models import WhatsAppConnection, WhatsAppBulkJob, WhatsAppTemplate
     from app.services.whatsapp_connections import encrypt_token
     from app.services.whatsapp_scheduler import dispatch_due_job
+    from app.services import template_workflow as workflow
     settings = get_settings()
     monkeypatch.setattr(settings, "whatsapp_token_encryption_key", Fernet.generate_key().decode())
+    monkeypatch.setattr(
+    workflow,
+    "graph",
+    lambda *args, **kwargs: {
+        "id": "888",
+        "status": "APPROVED"
+    }
+    )
     tenant_id = account["user"]["tenant_id"]
     org_id = account["user"]["organization_id"]
     db_session.add(WhatsAppConnection(tenant_id=tenant_id, organization_id=org_id, waba_id="999", phone_number_id="123", encrypted_access_token=encrypt_token("test-token", tenant_id, org_id), connected_by=account["user"]["id"]))
@@ -92,6 +102,19 @@ def test_scheduled_job_waits_then_dispatches_once(client, account, monkeypatch, 
     db_session.commit()
     assert dispatch_due_job(session_factory) is True
     assert dispatch_due_job(session_factory) is False
-    assert calls == [{"name": "hello_world", "language": {"code": "en_US"}, 'components': []}]
+
+    db_session.refresh(job)
+
+    print("DEBUG recipient summary:", job.recipients_summary)
+    print("DEBUG saved sender:", job.audience_payload.get("sender_phone_number_id"))
+    print("DEBUG send calls:", calls)
+
+    assert calls == [
+    {
+        "name": "hello_world",
+        "language": {"code": "en_US"},
+        "components": []
+    }
+    ]
     db_session.refresh(job)
     assert job.recipients_summary[0]["status"] == "accepted"

@@ -106,6 +106,14 @@ def test_queued_media_retains_version_and_reuploads_at_dispatch(client, account,
     assert job.audience_payload['template_snapshot']['definition']['meta_id'] == '123'
     row.content = {'body': 'Unpublished edits'}; db_session.commit()
     uploads, sends = [], []
+    monkeypatch.setattr(
+    workflow,
+    'graph',
+    lambda *args, **kwargs: {
+        'id': '123',
+        'status': 'APPROVED'
+    }
+    )
     monkeypatch.setattr(workflow, 'sending_media', lambda *a: uploads.append(a[1]) or '999')
     monkeypatch.setattr(communications, 'send_message', lambda *a, **kw: sends.append(kw['template']) or {'message_id': 'wamid.media', 'status': 'accepted'})
     communications.dispatch_bulk_job(db_session, job, credentials())
