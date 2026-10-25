@@ -1,3 +1,8 @@
+> Updated 2026-10-25: local database is `hanuram_dev`; hosted production is
+> `hanuram_production_ii23`. Current repository head is `f91c320ab012`.
+> The 007/008 discussion below is historical background. Startup requires the
+> exact deployed migration head, not merely 008. No migration is executed by this guide.
+
 # Render authorization deployment
 
 For the context-lock correction, first complete the installation prerequisites
@@ -46,7 +51,7 @@ transaction; subscription snapshots are checked by deferred database triggers.
 3. Review and run the complete SQL in
    [scripts/render_authorization_operator.sql](scripts/render_authorization_operator.sql)
    using pgAdmin connected as the operator to the intended database. It runs
-   only when `current_database()` is exactly `hanuram_production` and the server
+   only when `current_database()` is exactly `hanuram_production_ii23` and the server
    is PostgreSQL 18. Application logins must already have no memberships,
    elevated role attributes, object ownership, or database/schema CREATE access;
    unsafe starting state is rejected rather than silently repaired. Existing
@@ -71,7 +76,7 @@ transaction; subscription snapshots are checked by deferred database triggers.
    $env:MIGRATION_DATABASE_URL = $env:OPERATOR_DATABASE_URL
    $env:REQUIRE_RLS = 'true'
    $env:AUTO_CREATE_TABLES = 'false'
-   .\.venv\Scripts\python.exe -m alembic upgrade f91c320ab007
+   .\.venv\Scripts\python.exe -m alembic upgrade f91c320ab012
    ```
 
    Run from the backend directory with dependencies installed. This explicitly
@@ -90,7 +95,7 @@ transaction; subscription snapshots are checked by deferred database triggers.
 
    Supply the keys at the hidden prompts. They are stored in private
    `hanuram_auth.signing_keys` only by a direct `hanuram_production_user`
-   connection to `hanuram_production` with SET authority for
+   connection to `hanuram_production_ii23` with SET authority for
    `hanuram_identity_owner`. Provisioning verifies the owner-controlled tables
    and a single installation UUID. It rejects any existing keys (including a
    partial set), serializes concurrent attempts, and inserts all three in one
@@ -181,7 +186,7 @@ FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 WHERE n.nspname='hanuram_auth' ORDER BY p.proname;
 ```
 
-The application revision should be `f91c320ab007`, application role memberships
+The application revision should be `f91c320ab012`, application role memberships
 should be empty, and tenant/staff/plan tables should show both RLS flags true.
 Logging in directly as either application login without an assertion must return
 zero protected rows. Do not query or export the private signing key table.
@@ -193,7 +198,7 @@ zero protected rows. Do not query or export the private signing key table.
 ```
 
 This creates and destroys an entirely separate local cluster and fresh databases;
-the isolated authorization database is named `hanuram_production` to exercise the
+the isolated authorization database is named `hanuram_production_ii23` to exercise the
 production-name guard unchanged. Loopback and a random database marker protect
 the test entry point. Operator tests cover fresh/repeat installation, wrong-name
 rejection, unsafe privileges/memberships/ownership, extension relocation, and

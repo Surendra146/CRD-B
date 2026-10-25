@@ -5,6 +5,7 @@ from threading import Event, Thread
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from app.services.whatsapp_interlock import sending_enabled, WhatsAppSendingDisabled
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,8 @@ def parse_schedule(value):
 
 
 def dispatch_due_job(session_factory):
+    if not sending_enabled():
+        return False
     from app.database.authorization import enabled, claim_campaign
     if enabled():
         with session_factory() as discovery:
@@ -57,6 +60,13 @@ def dispatch_due_job(session_factory):
             if connection.whatsapp_phone_number_id != job.audience_payload.get("sender_phone_number_id"):
                 raise HTTPException(409, "The campaign's WhatsApp sender has changed; create a new campaign")
             dispatch_bulk_job(db, job, connection)
+        except WhatsAppSendingDisabled:
+            db.rollback()
+            db.refresh(job, with_for_update=True)
+            if job.status == 'in_progress':
+                job.status = 'scheduled'
+            db.commit()
+            return False
         except HTTPException as error:
             db.rollback()
             db.refresh(job, with_for_update=True)

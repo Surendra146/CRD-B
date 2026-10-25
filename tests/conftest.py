@@ -7,6 +7,7 @@ import pytest
 # Override before application imports and load_dotenv.
 os.environ.update({
     "ENVIRONMENT": "test",
+    "WHATSAPP_SENDING_ENABLED": "true",  # Existing mocked send regressions opt in.
     "DATABASE_URL": "postgresql+psycopg://test:test@127.0.0.1:1/unused_test",
     "JWT_SECRET": "pytest-only-secret-not-for-production-000000",
     "ENABLE_REDIS_PROGRESS": "false",
@@ -17,7 +18,17 @@ os.environ.update({
     "REQUIRE_RLS": "false",
     "CAMPAIGN_TRANSPORT": "database",
     "CORS_ORIGINS": "https://frontend.example.com",
+    "MEDIA_STORAGE_BACKEND": "local",  # Never inherit a live R2 target from .env.
 })
+
+
+@pytest.fixture(autouse=True)
+def isolated_media_settings(monkeypatch, tmp_path):
+    from app.config.settings import get_settings
+    monkeypatch.setenv('WHATSAPP_TEMPLATE_MEDIA_ROOT', str(tmp_path / 'media'))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def pytest_addoption(parser):

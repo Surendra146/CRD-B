@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
 from app.config.settings import get_settings
+from app.services.whatsapp_interlock import sending_enabled, WhatsAppSendingDisabled
 
 settings = get_settings()
 celery_app = Celery("hanuram", broker=settings.redis_url)
@@ -19,6 +20,8 @@ celery_app.conf.update(task_ignore_result=True, task_serializer="json", accept_c
 
 @celery_app.task(name="hanuram.publish_due")
 def publish_due():
+    if not sending_enabled():
+        return
     from app.database.connection import ControlSessionLocal
     from app.models import WhatsAppBulkJob
     from app.models.saas import CampaignOutbox
@@ -26,6 +29,8 @@ def publish_due():
         from app.database.authorization import enabled, claim_campaign
         if enabled():
             for _ in range(100):
+                if not sending_enabled():
+                    break
                 claim = claim_campaign(db)
                 if not claim:
                     break
@@ -49,6 +54,8 @@ def publish_due():
 
 @celery_app.task(name="hanuram.deliver_job", acks_late=True, reject_on_worker_lost=True)
 def deliver_job(job_id, tenant_id, organization_id, claim=None):
+    if not sending_enabled():
+        return  # Durable outbox/job remains eligible; do not claim or fail it.
     from app.database.connection import SessionLocal
     from app.models import User, Tenant, WhatsAppBulkJob
     from app.models.saas import CampaignOutbox
@@ -100,6 +107,9 @@ def deliver_job(job_id, tenant_id, organization_id, claim=None):
             if outbox:
                 outbox.status = "completed"
             db.commit()
+        except WhatsAppSendingDisabled:
+            db.rollback()
+            return  # Do not complete the outbox or fail queued recipients.
         except HTTPException as error:
             db.rollback()
             db.refresh(job, with_for_update=True)

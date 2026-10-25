@@ -1,8 +1,78 @@
 # Separate local and production databases
 
-Use `hanuram_dev` on local PostgreSQL 18 and `hanuram_production` on the production server. You do not need a second local PostgreSQL instance or a locally named production database. The application does not require the same database name in both environments.
+## Local Redis with Docker
 
-The local setup wrapper and `--local-development` key-provisioning flag support this arrangement. The existing production setup commands still default to `hanuram_production`. These tools do not switch the running application's connection; its environment does.
+### Full local frontend/backend stack
+
+The frontend repository's `docker-compose.yml` now uses development services and
+the existing Windows PostgreSQL database `hanuram_dev`. Its private `.env.docker`
+contains `LOCAL_DATABASE_URL` for `hanuram_runtime` and
+`LOCAL_CONTROL_DATABASE_URL` for `hanuram_control`, using `host.docker.internal`.
+Local authorization keys must match that database. The backend `.env` continues
+using loopback for Python processes started directly on Windows.
+
+```powershell
+Set-Location 'D:\web apps\React\CBD project'
+docker compose --env-file .env.docker --profile dev up --build -d --wait redis backend-dev frontend-dev
+```
+
+Frontend: `http://localhost:5173`; backend: `http://localhost:8000` (or the
+`BACKEND_PORT` configured in `.env.docker`). This stack's internal Redis hostname
+is `redis`; it does not need a published port. No worker or Beat service is started.
+`WHATSAPP_SENDING_ENABLED=false`, `REQUIRE_RLS=true` and
+`AUTO_CREATE_TABLES=false` are explicit. There is no automatic migration/reset.
+
+The old `cm_db` volume is retained for recovery after obsolete containers are removed;
+they are not the new application's database. A Compose project/image or Linux
+account name containing `cbd` does not select a PostgreSQL database. Do not use
+`down --volumes` or `--remove-orphans` to clean up the old stack. The old
+`docker:prod` npm command is now a compatibility alias for `docker:dev` in this
+local frontend repository; actual hosted Render deployments remain separate.
+
+For future local key/password changes, update the private `.env.docker` values
+consistently; its copied connection values do not track backend `.env` edits
+automatically. Never replace local URLs/keys with hosted production credentials.
+
+### Redis only, with Python running directly on Windows
+
+`compose.yaml` starts only the shared `cbd-redis-1`, bound to Windows loopback.
+It uses the same project/service/volume as the frontend Compose stack, avoiding a second Redis. It does not create,
+reset or migrate PostgreSQL. The backend connects to your existing local
+`hanuram_dev` database as `hanuram_runtime`, with `hanuram_control` for the separate
+control connection. Review `.env.development.example` and merge the local values
+into `.env`, preserving existing local authorization/encryption keys. Change port
+5432 if your local PostgreSQL uses another port; URL-encode passwords.
+
+```powershell
+Set-Location 'D:\web apps\Python\CBD_Python'
+docker compose -f compose.yaml up -d redis
+docker compose -f compose.yaml exec redis redis-cli ping
+# Expected: PONG
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload
+```
+
+These are operator instructions; no services are started by editing these files.
+Keep `WHATSAPP_SENDING_ENABLED=false`. Workers/Beat can be started separately only
+when intended; they are not started by this Compose file. The FastAPI process runs
+on Windows, so `REDIS_URL=redis://127.0.0.1:6379/0` is correct. Redis does not connect
+to PostgreSQL. If the backend is later containerized, its Windows PostgreSQL host
+must be `host.docker.internal`, and its Redis host must be the Compose service
+`redis`; container loopback is not the Windows host.
+
+To stop Redis while retaining its data: `docker compose -f compose.yaml stop redis`.
+Do not remove volumes to troubleshoot connectivity. If port 6379 is occupied,
+inspect the existing service before starting another Redis instance.
+
+`render.yaml` configures hosted services, not local Docker. Its current database
+name/user edits are retained, but its `databases.user` is a provisioning login and
+does not configure the restricted application role. Never sync it to rename an
+existing hosted database or make the runtime login its privileged owner. Configure
+the existing runtime/control URLs through the shared Render environment group.
+
+Use `hanuram_dev` on local PostgreSQL 18 and `hanuram_production_ii23` on the production server. You do not need a second local PostgreSQL instance or a locally named production database. The application does not require the same database name in both environments.
+
+The local setup wrapper and `--local-development` key-provisioning flag support this arrangement. The existing production setup commands still default to `hanuram_production_ii23`. These tools do not switch the running application's connection; its environment does.
 
 ## 1. Stop the local backend and configure local URLs
 
@@ -60,7 +130,7 @@ $pgBin = 'C:\Program Files\PostgreSQL\18\bin'
 & "$pgBin\psql.exe" -h 127.0.0.1 -p 5432 -U hanuram_dev_user -d hanuram_dev -v ON_ERROR_STOP=1 -f scripts/local_authorization_operator.sql
 ```
 
-This wrapper checks for `hanuram_dev` and a direct `hanuram_dev_user` operator connection. It runs the same reviewed role/schema preparation as production, without dropping tables or disabling guards. The production setup script still defaults to checking `hanuram_production` when invoked normally.
+This wrapper checks for `hanuram_dev` and a direct `hanuram_dev_user` operator connection. It runs the same reviewed role/schema preparation as production, without dropping tables or disabling guards. The production setup script still defaults to checking `hanuram_production_ii23` when invoked normally.
 
 ## 4. Pending local migrations
 

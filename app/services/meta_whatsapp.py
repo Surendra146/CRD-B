@@ -95,6 +95,8 @@ def build_message(phone, message, *, template=None, buttons=None, media_files=No
 
 
 def send_message(phone, message, *, connection=None, **options):
+    from app.services.whatsapp_interlock import require_sending_enabled
+    require_sending_enabled()
     settings = require_configuration(connection)
     payload = build_message(phone, message, **options)
     request = Request(

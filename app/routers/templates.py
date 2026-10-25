@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
+import logging
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, DataError
 from sqlalchemy.orm import Session
 
 from app.services.crud import apply_payload
@@ -122,14 +124,38 @@ def refresh_template(template_id: int, user: User = Depends(require_organization
 @router.post("/{template_id}/media")
 async def upload_template_media(template_id: int, file: UploadFile = File(...), user: User = Depends(require_organization), db: Session = Depends(get_db)):
     from app.services.template_workflow import owned
-    from app.services.template_media import store_asset
+    from app.services.template_media import store_asset, asset_key
+    from app.services.media_storage.factory import get_media_storage
     row = owned(db, user, template_id, lock=True)
     data = await file.read(100 * 1024**2 + 1)
     await file.close()
     if len(data) > 100 * 1024**2:
         raise HTTPException(413, 'Upload files up to 100 MB')
     entry = store_asset(row, data, file.content_type, file.filename)
-    db.commit()
+    key = asset_key(row, entry['id'])
+    committing = False
+    try:
+        db.flush()
+        committing = True
+        db.commit()
+    except Exception as error:
+        # Flush cannot commit. Constraint/data errors confirm rejection even if
+        # deferred until COMMIT; connection failures at COMMIT are ambiguous.
+        cleanup = not committing or isinstance(error, (IntegrityError, DataError))
+        try:
+            db.rollback()
+        except Exception:
+            logging.getLogger(__name__).warning('Media upload rollback failed')
+        if cleanup:
+            try:
+                get_media_storage().delete(key)
+            except Exception:
+                logging.getLogger(__name__).warning('New media cleanup failed; reconciliation required',
+                    extra={'template_id': template_id, 'asset_id': entry['id']})
+        else:
+            logging.getLogger(__name__).warning('Media commit outcome uncertain; object retained for reconciliation',
+                extra={'template_id': template_id, 'asset_id': entry['id']})
+        raise HTTPException(503, 'Media upload could not be confirmed. Refresh the template before retrying') from None
     return {"success": True, "data": entry}
 
 

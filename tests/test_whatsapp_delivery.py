@@ -104,7 +104,11 @@ def test_bulk_dispatch_records_provider_acceptance_and_failure(settings, monkeyp
     assert all(r["delivered_at"] is None for r in db.job.recipients_summary)
 
 
-def test_signed_webhook_is_registered_and_updates_actual_delivery(settings):
+@pytest.mark.parametrize('sending', ['true', 'false'])
+def test_signed_webhook_is_registered_and_updates_actual_delivery(settings, monkeypatch, sending):
+    from app.config.settings import get_settings
+    monkeypatch.setenv('WHATSAPP_SENDING_ENABLED', sending)
+    get_settings.cache_clear()
     job = SimpleNamespace(recipients_summary=[{"message_id": "wamid.test", "status": "accepted"}], stats={}, status="in_progress")
     class DB:
         def scalar(self, query): return SimpleNamespace(tenant_id=1, organization_id=1, phone_number_id="123", waba_id="999")

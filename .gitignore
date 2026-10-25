@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+!.env.development.example
+!.env.production.example
 .venv/
 venv/
 __pycache__/
@@ -22,3 +24,11 @@ test-results/
 
 .template-media/
 pytest-temp/
+/test-temp/
+
+# Celery runtime files
+celerybeat-schedule
+celerybeat-schedule.*
+
+# Temporary test directories
+test-temp-*/

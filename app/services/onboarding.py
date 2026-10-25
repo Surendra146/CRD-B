@@ -175,6 +175,8 @@ def verify(db, row, actor, payload):
         ContactConsent.opted_in.is_(True)))
     if not consent:
         raise HTTPException(422, 'Record explicit messaging consent for the test recipient first')
+    from app.services.whatsapp_interlock import require_sending_enabled
+    require_sending_enabled()
     result = graph(connection.phone_number_id + '/messages', token, method='POST', data={
         'messaging_product': 'whatsapp', 'to': payload.test_phone, 'type': 'template',
         'template': {'name': payload.template_name, 'language': {'code': payload.language}}})

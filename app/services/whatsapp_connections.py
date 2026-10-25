@@ -134,6 +134,9 @@ def require_signup_configuration():
 
 
 def graph(path, token=None, *, params=None, method="GET", data=None):
+    if method.upper() == 'POST' and path.split('?', 1)[0].rstrip('/').endswith('/messages'):
+        from app.services.whatsapp_interlock import require_sending_enabled
+        require_sending_enabled()
     settings = get_settings()
     if not re.fullmatch(r"(?:\d+(?:/[a-z_]+)?|oauth/access_token|debug_token)", path):
         raise HTTPException(400, "Invalid Meta request path")

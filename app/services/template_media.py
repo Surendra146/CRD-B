@@ -16,6 +16,8 @@ from PIL import Image, UnidentifiedImageError
 
 from app.services.meta_whatsapp import urlopen
 from app.config.settings import get_settings
+from app.services.media_storage.factory import get_media_storage
+from app.services.media_storage.keys import validate_key
 
 LIMITS = {'image': 5 * 1024**2, 'video': 16 * 1024**2, 'document': 100 * 1024**2}
 
@@ -76,21 +78,29 @@ def validate_media(data, claimed):
     return kind, mime
 
 
-def asset_path(row, asset_id):
+def asset_key(row, asset_id):
     if not re.fullmatch(r'[a-f0-9]{32}', str(asset_id)):
         raise HTTPException(404, 'Media asset not found')
-    root = Path(os.getenv('WHATSAPP_TEMPLATE_MEDIA_ROOT', '.template-media')).resolve()
-    return root / str(row.tenant_id) / str(row.organization_id) / str(row.id) / asset_id
+    try:
+        return validate_key(f'{row.tenant_id}/{row.organization_id}/{row.id}/{asset_id}')
+    except ValueError:
+        raise HTTPException(404, 'Media asset not found') from None
+
+
+def asset_path(row, asset_id):
+    """Compatibility helper for existing local tooling; never used for R2 reads."""
+    from app.services.media_storage.local import LocalMediaStorage
+    return LocalMediaStorage(get_settings().whatsapp_template_media_root)._path(asset_key(row, asset_id))
 
 
 def asset(row, asset_id, kind=None):
     entry = next((a for a in (row.workflow or {}).get('assets', []) if a['id'] == asset_id), None)
     if not entry or (kind and entry['type'].upper() != kind.upper()):
         raise HTTPException(422, 'Select an owned asset matching the approved header type')
-    path = asset_path(row, asset_id)
+    key = asset_key(row, asset_id)
     try:
-        data = path.read_bytes()
-    except OSError:
+        data = get_media_storage().get(key)
+    except (OSError, ValueError):
         raise HTTPException(409, 'Stored media is unavailable. Upload it again and reselect the asset') from None
     if hashlib.sha256(data).hexdigest() != entry['sha256']:
         raise HTTPException(409, 'Stored media changed. Upload the file again')
@@ -100,9 +110,11 @@ def asset(row, asset_id, kind=None):
 def store_asset(row, data, claimed, filename):
     kind, mime = validate_media(data, claimed)
     identifier = uuid4().hex
-    path = asset_path(row, identifier)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    key = asset_key(row, identifier)
+    try:
+        get_media_storage().put(key, data)
+    except (OSError, ValueError):
+        raise HTTPException(503, 'Media storage is temporarily unavailable') from None
     entry = {'id': identifier, 'type': kind, 'mime': mime, 'size': len(data),
              'name': re.sub(r'[^\w. -]', '_', str(filename or 'media').replace('\\', '/').split('/')[-1])[:150],
              'sha256': hashlib.sha256(data).hexdigest()}

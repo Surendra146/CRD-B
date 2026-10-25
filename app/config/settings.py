@@ -12,7 +12,7 @@ class Settings:
     def __init__(self) -> None:
         raw_db_url = os.getenv(
             "DATABASE_URL",
-            "postgresql+psycopg://localhost:5432/cm_db",
+            "postgresql+psycopg://hanuram_runtime@localhost:5432/hanuram_dev",
         )
         # Normalize Render / cloud PostgreSQL URLs for psycopg v3 dialect
         if raw_db_url.startswith("postgres://"):
@@ -30,6 +30,8 @@ class Settings:
                 raise ValueError("Production JWT_SECRET must contain at least 32 characters")
         # Meta credentials and routing are server-owned; never expose to React.
         self.whatsapp_provider: str = os.getenv("WHATSAPP_PROVIDER", "meta_cloud")
+        # Only explicit true enables delivery; unset/invalid values fail closed.
+        self.whatsapp_sending_enabled: bool = os.getenv("WHATSAPP_SENDING_ENABLED", "false").strip().lower() == "true"
         self.whatsapp_graph_version: str = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")
         self.meta_app_secret: str = os.getenv("META_APP_SECRET", "")
         self.whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
@@ -43,6 +45,35 @@ class Settings:
         self.enforce_whatsapp_consent = os.getenv("ENFORCE_WHATSAPP_CONSENT", "true").lower() == "true"
         self.enforce_subscription = os.getenv("ENFORCE_SUBSCRIPTION", "true").lower() == "true"
         self.require_rls = os.getenv("REQUIRE_RLS", "true" if self.environment.lower() == "production" else "false").lower() == "true"
+        # WhatsApp template media storage configuration
+        self.media_storage_backend: str = os.getenv(
+            "MEDIA_STORAGE_BACKEND", "local"
+        ).strip().lower()
+
+        if self.media_storage_backend not in {"local", "r2"}:
+            raise ValueError(
+                "MEDIA_STORAGE_BACKEND must be 'local' or 'r2'"
+            )
+
+        self.whatsapp_template_media_root: str = os.getenv(
+            "WHATSAPP_TEMPLATE_MEDIA_ROOT", ".template-media"
+        )
+
+        # Cloudflare R2 configuration
+        self.r2_endpoint_url: str = os.getenv("R2_ENDPOINT_URL", "")
+        self.r2_bucket_name: str = os.getenv("R2_BUCKET_NAME", "")
+        self.r2_access_key_id: str = os.getenv("R2_ACCESS_KEY_ID", "")
+        self.r2_secret_access_key: str = os.getenv("R2_SECRET_ACCESS_KEY", "")
+        if self.media_storage_backend == "r2":
+            if not all([
+                self.r2_endpoint_url,
+                self.r2_bucket_name,
+                self.r2_access_key_id,
+                self.r2_secret_access_key,
+            ]):
+                raise ValueError(
+                    "Cloudflare R2 storage configuration is incomplete"
+                )
         self.database_authorization_keys = {
             purpose: os.getenv("DATABASE_AUTH_" + purpose.upper() + "_KEY", "")
             for purpose in ("identity", "staff", "jobs")

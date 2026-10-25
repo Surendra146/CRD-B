@@ -24,6 +24,7 @@ from app.config.settings import get_settings
 from app.services.consent import assert_send_allowed, record_message
 from app.services.billing import require_paid_subscription
 from app.services.template_workflow import prepare_send, hydrate_media
+from app.services.whatsapp_interlock import require_sending_enabled, WhatsAppSendingDisabled
 
 
 def communication_payload(payload: CommunicationRequest) -> dict:
@@ -31,6 +32,7 @@ def communication_payload(payload: CommunicationRequest) -> dict:
 
 
 def send_whatsapp(payload: CommunicationRequest, user: User = Depends(require_organization), db: Session = Depends(get_db)):
+    require_sending_enabled()
     payload_data = communication_payload(payload)
     if get_settings().enforce_subscription:
         require_paid_subscription(db, user)
@@ -93,6 +95,7 @@ def send_bulk_whatsapp(
     user: User = Depends(require_organization),
     db: Session = Depends(get_db),
 ):
+    require_sending_enabled()
     req = payload.to_payload()
     t_id = tenant_id_for_user(user)
     org_id = user.organization_id
@@ -240,6 +243,7 @@ def send_bulk_whatsapp(
 
 
 def dispatch_bulk_job(db, bulk_job, connection):
+    require_sending_enabled()
     batch_delay = bulk_job.batch_delay_seconds
     # Persist each provider result. A failed or interrupted request must never
     # claim delivery, and a retry must not silently resend this same job.
@@ -256,6 +260,7 @@ def dispatch_bulk_job(db, bulk_job, connection):
             break
         if current[index].get("status") != "queued":
             continue
+        require_sending_enabled()
         # Persist uncertainty before contacting Meta; never automatically retry a
         # recipient whose acceptance was interrupted by a process restart.
         db.refresh(bulk_job, with_for_update=True)
@@ -286,6 +291,17 @@ def dispatch_bulk_job(db, bulk_job, connection):
             recipient.update(result)
             if hasattr(db, "execute"):
                 record_message(db, bulk_job.tenant_id, bulk_job.organization_id, connection.whatsapp_phone_number_id, recipient["phone"], result, bulk_job.id)
+        except WhatsAppSendingDisabled:
+            # This exception certifies that no message request was attempted.
+            # Restore only this queued recipient, never ambiguous prior sends.
+            db.refresh(bulk_job, with_for_update=True)
+            current = list(bulk_job.recipients_summary)
+            if current[index].get('status') == 'unknown':
+                current[index] = dict(recipient)
+                bulk_job.recipients_summary = current
+                update_stats(bulk_job)
+                db.commit()
+            raise
         except HTTPException as error:
             uncertain = isinstance(error.detail, str) and any(
                 phrase in error.detail.lower() for phrase in ("unconfirmed", "could not confirm")
